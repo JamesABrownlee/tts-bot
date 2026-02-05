@@ -1,4 +1,4 @@
-# Python Discord TTS Bot Based on Bruska TTS by [ahmed5939] (https://github.com/ahmed5939)
+# Python Discord TTS Bot Based on Bruska TTS by (ahmed5939) [https://github.com/ahmed5939]
 
 ## Features
 - Default behaviour: when someone types in a voice channel's chat, the bot joins that VC (locks to it) and speaks messages for everyone in that VC.
