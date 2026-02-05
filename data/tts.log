@@ -1,0 +1,71 @@
+2026-02-05 22:09:34 INFO     TTS.bot  Settings file: settings.json
+2026-02-05 22:09:34 INFO     TTS.bot  Database file: data/tts.db
+2026-02-05 22:09:34 INFO     discord.client  logging in using static token
+2026-02-05 22:09:35 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7fb401980ad0>, 10738831.354442308)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7fb401999b50>
+2026-02-05 22:11:10 INFO     TTS.bot  Settings file: settings.json
+2026-02-05 22:11:10 INFO     TTS.bot  Database file: data/tts.db
+2026-02-05 22:11:10 INFO     discord.client  logging in using static token
+2026-02-05 22:11:10 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7fa551d80ad0>, 10738926.877788423)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7fa551d99b90>
+2026-02-05 22:11:58 INFO     TTS.bot  Settings file: settings.json
+2026-02-05 22:11:58 INFO     TTS.bot  Database file: data/tts.db
+2026-02-05 22:11:58 INFO     discord.client  logging in using static token
+2026-02-05 22:11:59 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7fd002a84ad0>, 10738975.45843736)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7fd002a95c90>
+2026-02-05 22:12:32 INFO     TTS.bot  Settings file: /data/settings.json
+2026-02-05 22:12:32 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-05 22:12:32 INFO     discord.client  logging in using static token
+2026-02-05 22:12:32 INFO     TTS.webui  Web UI listening on http://0.0.0.0:5090
+2026-02-05 22:12:33 INFO     TTS.bot  Synced application commands globally
+2026-02-05 22:12:33 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f669028cad0>, 10739009.394847533)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f6690271b90>
+2026-02-05 22:13:49 INFO     TTS.bot  Settings file: /data/settings.json
+2026-02-05 22:13:49 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-05 22:13:49 INFO     discord.client  logging in using static token
+2026-02-05 22:13:49 INFO     TTS.webui  Web UI listening on http://0.0.0.0:5090
+2026-02-05 22:13:50 INFO     TTS.bot  Synced application commands globally
+2026-02-05 22:13:50 INFO     discord.gateway  Shard ID None has connected to Gateway (Session ID: b4b523f91e17e906bda658be8021262d).
+2026-02-05 22:13:52 INFO     TTS.bot  Logged in as BRUSKA TTS2.0#7404
+2026-02-05 22:16:37 INFO     TTS.tts  Connecting voice: guild=1058541244365668372 channel=1063852037315514469
+2026-02-05 22:16:37 INFO     discord.voice_state  Connecting to voice...
+2026-02-05 22:16:37 INFO     discord.voice_state  Starting voice handshake... (connection attempt 1)
+2026-02-05 22:16:37 INFO     discord.voice_state  Voice handshake complete. Endpoint found: tel-aviv10003.discord.media
+2026-02-05 22:16:37 INFO     discord.voice_state  Voice connection complete.
+2026-02-05 22:16:41 INFO     discord.player  ffmpeg process 4153482 successfully terminated with return code of 0.
+2026-02-05 22:16:48 INFO     discord.player  ffmpeg process 4153552 successfully terminated with return code of 0.
+2026-02-05 22:17:12 INFO     discord.player  ffmpeg process 4153689 successfully terminated with return code of 0.
+2026-02-05 22:17:15 INFO     discord.player  ffmpeg process 4153753 successfully terminated with return code of 0.
+2026-02-05 22:17:38 INFO     discord.player  ffmpeg process 4153876 successfully terminated with return code of 0.
+2026-02-05 22:17:41 INFO     discord.player  ffmpeg process 4153899 successfully terminated with return code of 0.
+2026-02-05 22:17:50 INFO     discord.player  ffmpeg process 4153974 successfully terminated with return code of 0.
+2026-02-05 22:17:54 INFO     discord.player  ffmpeg process 4154040 successfully terminated with return code of 0.
+2026-02-05 22:18:00 INFO     discord.player  ffmpeg process 4154062 successfully terminated with return code of 0.
+2026-02-05 22:18:15 INFO     discord.player  ffmpeg process 4154178 successfully terminated with return code of 0.
+2026-02-05 22:18:27 INFO     discord.player  ffmpeg process 4154249 successfully terminated with return code of 0.
+2026-02-05 22:19:15 INFO     discord.player  ffmpeg process 4154454 successfully terminated with return code of 0.
+2026-02-05 22:19:19 INFO     discord.player  ffmpeg process 4154524 successfully terminated with return code of 0.
+2026-02-05 22:19:31 INFO     discord.player  ffmpeg process 4154596 successfully terminated with return code of 0.
+2026-02-05 22:19:47 INFO     discord.player  ffmpeg process 4154711 successfully terminated with return code of 0.
+2026-02-05 22:19:56 INFO     discord.player  ffmpeg process 4154779 successfully terminated with return code of 0.
+2026-02-05 22:21:30 INFO     discord.player  ffmpeg process 4155243 successfully terminated with return code of 0.
+2026-02-05 22:21:34 INFO     discord.player  ffmpeg process 4155268 successfully terminated with return code of 0.
+2026-02-05 22:21:37 INFO     discord.player  ffmpeg process 4155319 successfully terminated with return code of 0.
+2026-02-05 22:21:50 INFO     discord.player  ffmpeg process 4155404 successfully terminated with return code of 0.
+2026-02-05 22:22:00 INFO     discord.player  ffmpeg process 4155475 successfully terminated with return code of 0.
+2026-02-05 22:22:02 INFO     discord.player  ffmpeg process 4155493 successfully terminated with return code of 0.
+2026-02-05 22:22:10 INFO     discord.player  ffmpeg process 4155567 successfully terminated with return code of 0.
+2026-02-05 22:22:16 INFO     discord.player  ffmpeg process 4155592 successfully terminated with return code of 0.
+2026-02-05 22:22:20 INFO     discord.player  ffmpeg process 4155659 successfully terminated with return code of 0.
+2026-02-05 22:24:43 INFO     discord.player  ffmpeg process 4156319 successfully terminated with return code of 0.
+2026-02-05 22:24:54 INFO     discord.player  ffmpeg process 4156389 successfully terminated with return code of 0.
+2026-02-05 22:25:21 INFO     discord.player  ffmpeg process 4156549 successfully terminated with return code of 0.
+2026-02-05 22:25:32 INFO     discord.player  ffmpeg process 4156618 successfully terminated with return code of 0.
+2026-02-05 22:25:44 INFO     discord.player  ffmpeg process 4156687 successfully terminated with return code of 0.
+2026-02-05 22:26:05 INFO     discord.player  ffmpeg process 4156799 successfully terminated with return code of 0.
+2026-02-05 22:31:15 INFO     discord.player  ffmpeg process 4158230 successfully terminated with return code of 0.
+2026-02-05 22:31:21 INFO     discord.player  ffmpeg process 4158257 successfully terminated with return code of 0.

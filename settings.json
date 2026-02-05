@@ -1,0 +1,7 @@
+{
+  "auto_read_messages": true,
+  "default_voice_id": "en_us_001",
+  "fallback_voice": "en_us_001",
+  "leave_when_alone": true,
+  "max_tts_chars": 300
+}

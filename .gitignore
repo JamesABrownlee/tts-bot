@@ -1,0 +1,27 @@
+# Binaries
+discord-bot
+*.exe
+
+# Environment files
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.python-version
+
+# Bot runtime data
+tts-bot/data/
+tts-bot/settings.json
+

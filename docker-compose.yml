@@ -1,0 +1,17 @@
+services:
+  tts-bot:
+    build: .
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      WEB_HOST: ${WEB_HOST:-0.0.0.0}
+      WEB_PORT: ${WEB_PORT:-8080}
+      WEB_UI_TOKEN: ${WEB_UI_TOKEN:-}
+      SETTINGS_PATH: ${SETTINGS_PATH:-/data/settings.json}
+      LOG_FILE_PATH: ${LOG_FILE_PATH:-/data/tts.log}
+      DB_PATH: ${DB_PATH:-/data/tts.db}
+      DEV_GUILD_ID: ${DEV_GUILD_ID:-}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
