@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 from .settings_schema import DEFAULT_SETTINGS, SettingsValidationError, validate_settings
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 
 class SettingsStore:
     def __init__(self, path: str, defaults: Optional[Dict[str, Any]] = None) -> None:
