@@ -20,6 +20,7 @@ TIKTOK_VOICES: list[tuple[str, str]] = [
     ("en_male_ghosthost", "Ghost Host"),
     ("en_male_pirate", "Pirate"),
     # Standard Voices
+    ("en_us_001", "English US (Default)"),
     ("en_us_002", "Jessie"),
     ("en_us_006", "Joey"),
     ("en_us_007", "Professor"),
@@ -59,9 +60,11 @@ GOOGLE_VOICES: list[tuple[str, str]] = [
 ]
 
 ALL_VOICES: list[tuple[str, str]] = [*TIKTOK_VOICES, *GOOGLE_VOICES]
+ALL_VOICE_IDS: list[str] = [voice_id for voice_id, _name in ALL_VOICES]
 VOICE_ID_TO_NAME: dict[str, str] = {voice_id: name for voice_id, name in ALL_VOICES}
 
 POPULAR_VOICE_IDS: list[str] = [
+    "en_us_001",
     "en_us_ghostface",
     "en_us_002",
     "en_us_006",

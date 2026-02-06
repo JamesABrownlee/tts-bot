@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, Mapping
 
-from .config import FALLBACK_VOICE, MAX_TTS_CHARS
+from .config import ALL_VOICE_IDS, FALLBACK_VOICE, MAX_TTS_CHARS
 
 
 class SettingsValidationError(ValueError):
@@ -17,7 +17,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "greet_on_join": False,
     "farewell_on_leave": False,
     "restrict_voices": False,
-    "allowed_voice_ids": [],
+    # Keep this pre-populated so new installs can immediately restrict voices
+    # without having to manually select everything first.
+    "allowed_voice_ids": list(ALL_VOICE_IDS),
 }
 
 
