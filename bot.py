@@ -102,6 +102,7 @@ async def main() -> None:
     loop = asyncio.get_running_loop()
     bot.start_time = time.time()
     bot.log_buffer = init_root_logging(loop)
+    logger.info("discord.py version: %s", discord.__version__)
     bot.settings = SettingsStore(os.getenv("SETTINGS_PATH") or "settings.json")
     await bot.settings.load()
     logger.info("Settings defaults file: %s", bot.settings.path)
