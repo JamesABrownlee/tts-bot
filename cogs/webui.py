@@ -548,10 +548,10 @@ def _settings_body() -> str:
     <input id="maxChars" type="number" min="1" max="2000" />
 
     <label class="muted">Fallback Voice ID</label>
-    <input id="fallbackVoice" type="text" />
+    <select id="fallbackVoice"></select>
 
 	    <label class="muted">Default Voice ID (server default)</label>
-	    <input id="defaultVoice" type="text" />
+	    <select id="defaultVoice"></select>
 
     <label class="muted">Auto Speak Voice Chat Messages</label>
     <div class="inputrow">
@@ -692,14 +692,54 @@ def _settings_body() -> str:
 	    const res = await apiFetch('/api/voices');
 	    const voices = (res && Array.isArray(res.voices)) ? res.voices : [];
 	    allVoices = voices.map(v => ({ id: String(v.id), name: String(v.name || v.id) }));
+	    renderVoiceSelects();
+	  }
+
+	  function renderVoiceSelects() {
+	    if (!elFallbackVoice || !elDefaultVoice) return;
+	    const curFallback = (elFallbackVoice.value || '').trim();
+	    const curDefault = (elDefaultVoice.value || '').trim();
+
+	    const buildOptions = () => {
+	      const frag = document.createDocumentFragment();
+	      for (const v of allVoices) {
+	        const opt = document.createElement('option');
+	        opt.value = v.id;
+	        opt.textContent = v.name ? `${v.name} (${v.id})` : v.id;
+	        frag.appendChild(opt);
+	      }
+	      return frag;
+	    };
+
+	    elFallbackVoice.innerHTML = '';
+	    elDefaultVoice.innerHTML = '';
+	    elFallbackVoice.appendChild(buildOptions());
+	    elDefaultVoice.appendChild(buildOptions());
+
+	    if (curFallback) elFallbackVoice.value = curFallback;
+	    if (curDefault) elDefaultVoice.value = curDefault;
+	  }
+
+	  function ensureSelectOption(selectEl, value) {
+	    if (!selectEl || !value) return;
+	    const exists = Array.from(selectEl.options).some(opt => opt.value === value);
+	    if (exists) return;
+	    const opt = document.createElement('option');
+	    opt.value = value;
+	    opt.textContent = value;
+	    selectEl.appendChild(opt);
 	  }
 
 	  function applyCurrentToForm() {
 	    if (!current) return;
 	    const max = parseInt(current.max_tts_chars, 10);
 	    elMaxChars.value = Number.isFinite(max) ? String(max) : '300';
-	    elFallbackVoice.value = String(current.fallback_voice || '').trim();
-	    elDefaultVoice.value = String(current.default_voice_id || '').trim();
+	    const fallbackValue = String(current.fallback_voice || '').trim();
+	    const defaultValue = String(current.default_voice_id || '').trim();
+	    ensureSelectOption(elFallbackVoice, fallbackValue);
+	    ensureSelectOption(elDefaultVoice, defaultValue);
+	    elFallbackVoice.value = fallbackValue;
+	    elDefaultVoice.value = defaultValue;
 
 		    if (current.auto_read_messages === undefined) current.auto_read_messages = true;
 		    if (current.leave_when_alone === undefined) current.leave_when_alone = true;
