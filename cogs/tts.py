@@ -466,8 +466,15 @@ class TTSCog(commands.Cog):
             return "Good afternoon"
         return "Good evening"
 
-    def _random_greeting(self) -> str:
-        return random.choice(["Hello", "Hey", "Good to see you"])
+    def _random_greeting(self, name: str) -> str:
+        return random.choice(
+            [
+                f"Hello {name}",
+                f"Hey {name}",
+                f"Good to see you {name}",
+                f"{name} has joined the chat",
+            ]
+        )
 
     def _random_farewell(self) -> str:
         return random.choice(["See ya", "Bye", "Until next time"])
@@ -582,8 +589,11 @@ class TTSCog(commands.Cog):
                     if last_seen == today_key:
                         greeting_text = f"Welcome back {name}"
                     else:
-                        greeting_text = f"{self._random_greeting()} {name}"
+                        greeting_text = self._random_greeting(name)
 
+                    await asyncio.sleep(2)
+                    if not (state.voice_client and state.voice_client.is_connected()):
+                        return
                     await self.ensure_worker(member.guild.id)
                     await state.queue.put(QueueItem(text=greeting_text, voice_id=voice_id))
 
