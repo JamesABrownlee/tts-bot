@@ -1128,7 +1128,15 @@ class WebUICog(commands.Cog):
     @web.middleware
     async def _auth_middleware(self, request: web.Request, handler):
         if request.path.startswith("/api/") and self.token:
-            if request.path in {"/api/logs", "/api/logs/stream"}:
+            if request.path in {
+                "/api/logs",
+                "/api/logs/stream",
+                "/api/status",
+                "/api/guilds",
+                "/api/voices",
+                "/api/voices/preview",
+                "/api/settings",
+            }:
                 return await handler(request)
             token = _get_bearer_token(request)
             if token != self.token:
@@ -1177,7 +1185,7 @@ class WebUICog(commands.Cog):
         return web.Response(text=html, content_type="text/html")
 
     async def page_settings(self, request: web.Request) -> web.Response:
-        html = _layout("TTS Bot - Settings", _settings_body(), token_required=self._token_required)
+        html = _layout("TTS Bot - Settings", _settings_body(), token_required=False)
         return web.Response(text=html, content_type="text/html")
 
     async def api_status(self, request: web.Request) -> web.Response:
