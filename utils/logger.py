@@ -97,6 +97,11 @@ def init_root_logging(loop: asyncio.AbstractEventLoop) -> LogBuffer:
     root_logger = logging.getLogger()
     root_logger.setLevel(LOGGING_LEVEL)
 
+    if LOGGING_LEVEL > logging.DEBUG:
+        logging.getLogger("discord").setLevel(logging.WARNING)
+        logging.getLogger("discord.voice_state").setLevel(logging.WARNING)
+        logging.getLogger("discord.gateway").setLevel(logging.WARNING)
+
     # Root gets console + file so dependency logs are visible too.
     for h in (_ensure_console_handler(), _ensure_file_handler()):
         if h not in root_logger.handlers:
