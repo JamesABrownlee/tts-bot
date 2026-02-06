@@ -5,11 +5,13 @@ import os
 import time
 from typing import Any, Dict, Optional
 
+import discord
 from aiohttp import web
 from discord.ext import commands
 
 from utils.config import ALL_VOICES, FALLBACK_VOICE, VOICE_ID_TO_NAME
 from utils.logger import get_logger
+from utils.settings_store import VERSION
 from utils.tts_pipeline import get_tts_stream
 
 logger = get_logger("webui")
@@ -395,6 +397,8 @@ def _index_body() -> str:
       const s = await apiFetch('/api/status');
       kv.innerHTML = `
         <div>Bot</div><code>${(s.user || 'not connected')}</code>
+        <div>Version</div><code>${(s.tts_version || 'unknown')}</code>
+        <div>discord.py</div><code>${(s.discord_py_version || 'unknown')}</code>
         <div>Guilds</div><code>${s.guild_count}</code>
         <div>Uptime</div><code>${fmtUptime(s.uptime_seconds)}</code>
         <div>Web</div><code>${s.web_host}:${s.web_port}</code>
@@ -1142,6 +1146,8 @@ class WebUICog(commands.Cog):
 
         data = {
             "user": str(self.bot.user) if self.bot.user else None,
+            "tts_version": VERSION,
+            "discord_py_version": discord.__version__,
             "guild_count": len(self.bot.guilds),
             "uptime_seconds": uptime,
             "web_host": self.host,
