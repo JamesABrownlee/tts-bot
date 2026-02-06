@@ -1,5 +1,6 @@
 import asyncio
 import math
+import random
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -465,6 +466,21 @@ class TTSCog(commands.Cog):
             return "Good afternoon"
         return "Good evening"
 
+    def _random_greeting(self) -> str:
+        return random.choice(["Hello", "Hey", "Good to see you"])
+
+    def _random_farewell(self) -> str:
+        return random.choice(["See ya", "Bye", "Until next time"])
+
+    def _today_key(self) -> str:
+        return time.strftime("%Y-%m-%d", time.localtime())
+
+    async def get_user_greeting_name(self, member: discord.Member) -> str:
+        nickname = await self.get_user_nickname(member.id)
+        if nickname:
+            return nickname
+        return member.display_name
+
     # -------------------- Default Behaviour --------------------
 
     @commands.Cog.listener()
@@ -550,16 +566,41 @@ class TTSCog(commands.Cog):
                 settings = await self.get_settings(member.guild.id)
                 default_voice = str(settings.get("default_voice_id", FALLBACK_VOICE))
                 voice_id = self._effective_voice_id(settings, default_voice)
-                name = await self.get_user_announcement_name(member)
+                name = await self.get_user_greeting_name(member)
+                today_key = self._today_key()
 
                 if joined_bot_channel and settings.get("greet_on_join"):
-                    greeting = self._time_of_day_greeting()
+                    greeting_text = f"{self._time_of_day_greeting()}, {name}"
+                    db = getattr(self.bot, "db", None)
+                    last_seen = None
+                    if db is not None:
+                        try:
+                            last_seen = await db.get_member_last_seen(member.guild.id, member.id)
+                        except Exception as exc:
+                            logger.warning("Failed to read member_seen: guild=%s user=%s err=%s", member.guild.id, member.id, exc)
+
+                    if last_seen == today_key:
+                        greeting_text = f"Welcome back {name}"
+                    else:
+                        greeting_text = f"{self._random_greeting()} {name}"
+
                     await self.ensure_worker(member.guild.id)
-                    await state.queue.put(QueueItem(text=f"{greeting}, {name}", voice_id=voice_id))
+                    await state.queue.put(QueueItem(text=greeting_text, voice_id=voice_id))
+
+                    if db is not None:
+                        try:
+                            await db.upsert_member_last_seen(member.guild.id, member.id, today_key, int(time.time()))
+                        except Exception as exc:
+                            logger.warning(
+                                "Failed to upsert member_seen: guild=%s user=%s err=%s",
+                                member.guild.id,
+                                member.id,
+                                exc,
+                            )
 
                 if left_bot_channel and settings.get("farewell_on_leave"):
                     await self.ensure_worker(member.guild.id)
-                    await state.queue.put(QueueItem(text=f"Goodbye, {name}", voice_id=voice_id))
+                    await state.queue.put(QueueItem(text=f"{self._random_farewell()} {name}", voice_id=voice_id))
 
         if state.voice_client and state.voice_client.is_connected():
             await self.check_should_leave(member.guild)

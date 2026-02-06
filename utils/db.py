@@ -48,6 +48,17 @@ class Database:
             );
             """
         )
+        await self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS member_seen (
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                last_seen_date TEXT NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY(guild_id, user_id)
+            );
+            """
+        )
         await self._ensure_user_columns()
         await self._ensure_guild_settings_columns()
         await self._migrate_from_user_voices()
@@ -124,6 +135,31 @@ class Database:
             await self._conn.execute(
                 "ALTER TABLE guild_settings ADD COLUMN allowed_voice_ids TEXT NOT NULL DEFAULT '[]';"
             )
+
+    async def get_member_last_seen(self, guild_id: int, user_id: int) -> Optional[str]:
+        if self._conn is None:
+            raise RuntimeError("Database not connected")
+        async with self._conn.execute(
+            "SELECT last_seen_date FROM member_seen WHERE guild_id = ? AND user_id = ?;",
+            (guild_id, user_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+    async def upsert_member_last_seen(self, guild_id: int, user_id: int, last_seen_date: str, updated_at: int) -> None:
+        if self._conn is None:
+            raise RuntimeError("Database not connected")
+        await self._conn.execute(
+            """
+            INSERT INTO member_seen(guild_id, user_id, last_seen_date, updated_at)
+            VALUES(?, ?, ?, ?)
+            ON CONFLICT(guild_id, user_id) DO UPDATE SET
+                last_seen_date=excluded.last_seen_date,
+                updated_at=excluded.updated_at;
+            """,
+            (guild_id, user_id, last_seen_date, updated_at),
+        )
+        await self._conn.commit()
 
     async def upsert_user(self, discord_id: int, display_name: str, updated_at: int) -> None:
         if self._conn is None:
