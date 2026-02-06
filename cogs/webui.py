@@ -1181,7 +1181,7 @@ class WebUICog(commands.Cog):
         return web.Response(text=html, content_type="text/html")
 
     async def page_logs(self, request: web.Request) -> web.Response:
-        html = _layout("TTS Bot - Logs", _logs_body(False), token_required=self._token_required)
+        html = _layout("TTS Bot - Logs", _logs_body(False), token_required=False)
         return web.Response(text=html, content_type="text/html")
 
     async def page_settings(self, request: web.Request) -> web.Response:
