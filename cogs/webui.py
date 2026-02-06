@@ -1088,6 +1088,8 @@ class WebUICog(commands.Cog):
     @web.middleware
     async def _auth_middleware(self, request: web.Request, handler):
         if request.path.startswith("/api/") and self.token:
+            if request.path in {"/api/logs", "/api/logs/stream"}:
+                return await handler(request)
             token = _get_bearer_token(request)
             if token != self.token:
                 return web.json_response({"error": "unauthorized"}, status=401)
@@ -1131,7 +1133,7 @@ class WebUICog(commands.Cog):
         return web.Response(text=html, content_type="text/html")
 
     async def page_logs(self, request: web.Request) -> web.Response:
-        html = _layout("TTS Bot - Logs", _logs_body(self._token_required), token_required=self._token_required)
+        html = _layout("TTS Bot - Logs", _logs_body(False), token_required=self._token_required)
         return web.Response(text=html, content_type="text/html")
 
     async def page_settings(self, request: web.Request) -> web.Response:
