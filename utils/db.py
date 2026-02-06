@@ -1,8 +1,11 @@
+import json
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import aiosqlite
+
+from .settings_schema import DEFAULT_SETTINGS, validate_settings
 
 
 class Database:
@@ -28,7 +31,25 @@ class Database:
             );
             """
         )
+        await self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS guild_settings (
+                guild_id INTEGER PRIMARY KEY,
+                max_tts_chars INTEGER NOT NULL,
+                fallback_voice TEXT NOT NULL,
+                default_voice_id TEXT NOT NULL,
+                auto_read_messages INTEGER NOT NULL,
+                leave_when_alone INTEGER NOT NULL,
+                greet_on_join INTEGER NOT NULL DEFAULT 0,
+                farewell_on_leave INTEGER NOT NULL DEFAULT 0,
+                restrict_voices INTEGER NOT NULL DEFAULT 0,
+                allowed_voice_ids TEXT NOT NULL DEFAULT '[]',
+                updated_at INTEGER NOT NULL
+            );
+            """
+        )
         await self._ensure_user_columns()
+        await self._ensure_guild_settings_columns()
         await self._migrate_from_user_voices()
         await self._conn.commit()
 
@@ -77,6 +98,32 @@ class Database:
         # Add `nickname` if upgrading from an older schema.
         if "nickname" not in cols:
             await self._conn.execute("ALTER TABLE discord_users ADD COLUMN nickname TEXT NULL;")
+
+    async def _ensure_guild_settings_columns(self) -> None:
+        """Ensure guild settings schema is upgraded in-place for existing DBs."""
+
+        if self._conn is None:
+            raise RuntimeError("Database not connected")
+
+        async with self._conn.execute("PRAGMA table_info(guild_settings);") as cursor:
+            cols = {row[1] async for row in cursor}
+
+        if "greet_on_join" not in cols:
+            await self._conn.execute(
+                "ALTER TABLE guild_settings ADD COLUMN greet_on_join INTEGER NOT NULL DEFAULT 0;"
+            )
+        if "farewell_on_leave" not in cols:
+            await self._conn.execute(
+                "ALTER TABLE guild_settings ADD COLUMN farewell_on_leave INTEGER NOT NULL DEFAULT 0;"
+            )
+        if "restrict_voices" not in cols:
+            await self._conn.execute(
+                "ALTER TABLE guild_settings ADD COLUMN restrict_voices INTEGER NOT NULL DEFAULT 0;"
+            )
+        if "allowed_voice_ids" not in cols:
+            await self._conn.execute(
+                "ALTER TABLE guild_settings ADD COLUMN allowed_voice_ids TEXT NOT NULL DEFAULT '[]';"
+            )
 
     async def upsert_user(self, discord_id: int, display_name: str, updated_at: int) -> None:
         if self._conn is None:
@@ -167,5 +214,120 @@ class Database:
         await self._conn.execute(
             "UPDATE discord_users SET nickname = NULL, updated_at = ? WHERE discord_id = ?",
             (updated_at, discord_id),
+        )
+        await self._conn.commit()
+
+    async def get_guild_settings(self, guild_id: int) -> Optional[dict[str, Any]]:
+        if self._conn is None:
+            raise RuntimeError("Database not connected")
+        async with self._conn.execute(
+            """
+            SELECT
+                max_tts_chars, fallback_voice, default_voice_id,
+                auto_read_messages, leave_when_alone,
+                greet_on_join, farewell_on_leave,
+                restrict_voices, allowed_voice_ids
+            FROM guild_settings
+            WHERE guild_id = ?
+            """,
+            (guild_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return None
+
+            allowed_raw = row[8] or "[]"
+            allowed: Any
+            if isinstance(allowed_raw, (bytes, bytearray)):
+                allowed_raw = allowed_raw.decode("utf-8", errors="replace")
+            try:
+                allowed = json.loads(str(allowed_raw))
+            except Exception:
+                allowed = []
+
+            raw = {
+                "max_tts_chars": row[0],
+                "fallback_voice": row[1],
+                "default_voice_id": row[2],
+                "auto_read_messages": bool(row[3]),
+                "leave_when_alone": bool(row[4]),
+                "greet_on_join": bool(row[5]),
+                "farewell_on_leave": bool(row[6]),
+                "restrict_voices": bool(row[7]),
+                "allowed_voice_ids": allowed,
+            }
+            return validate_settings(raw)
+
+    async def ensure_guild_settings(self, guild_id: int, settings: dict[str, Any], updated_at: int) -> None:
+        if self._conn is None:
+            raise RuntimeError("Database not connected")
+        cleaned = validate_settings({**DEFAULT_SETTINGS, **settings})
+        await self._conn.execute(
+            """
+            INSERT INTO guild_settings(
+                guild_id, max_tts_chars, fallback_voice, default_voice_id,
+                auto_read_messages, leave_when_alone,
+                greet_on_join, farewell_on_leave,
+                restrict_voices, allowed_voice_ids,
+                updated_at
+            )
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(guild_id) DO NOTHING;
+            """,
+            (
+                guild_id,
+                int(cleaned["max_tts_chars"]),
+                str(cleaned["fallback_voice"]),
+                str(cleaned["default_voice_id"]),
+                1 if cleaned["auto_read_messages"] else 0,
+                1 if cleaned["leave_when_alone"] else 0,
+                1 if cleaned["greet_on_join"] else 0,
+                1 if cleaned["farewell_on_leave"] else 0,
+                1 if cleaned["restrict_voices"] else 0,
+                json.dumps(cleaned.get("allowed_voice_ids") or []),
+                updated_at,
+            ),
+        )
+        await self._conn.commit()
+
+    async def upsert_guild_settings(self, guild_id: int, settings: dict[str, Any], updated_at: int) -> None:
+        if self._conn is None:
+            raise RuntimeError("Database not connected")
+        cleaned = validate_settings({**DEFAULT_SETTINGS, **settings})
+        await self._conn.execute(
+            """
+            INSERT INTO guild_settings(
+                guild_id, max_tts_chars, fallback_voice, default_voice_id,
+                auto_read_messages, leave_when_alone,
+                greet_on_join, farewell_on_leave,
+                restrict_voices, allowed_voice_ids,
+                updated_at
+            )
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(guild_id) DO UPDATE SET
+                max_tts_chars=excluded.max_tts_chars,
+                fallback_voice=excluded.fallback_voice,
+                default_voice_id=excluded.default_voice_id,
+                auto_read_messages=excluded.auto_read_messages,
+                leave_when_alone=excluded.leave_when_alone,
+                greet_on_join=excluded.greet_on_join,
+                farewell_on_leave=excluded.farewell_on_leave,
+                restrict_voices=excluded.restrict_voices,
+                allowed_voice_ids=excluded.allowed_voice_ids,
+                updated_at=excluded.updated_at;
+            """,
+            (
+                guild_id,
+                int(cleaned["max_tts_chars"]),
+                str(cleaned["fallback_voice"]),
+                str(cleaned["default_voice_id"]),
+                1 if cleaned["auto_read_messages"] else 0,
+                1 if cleaned["leave_when_alone"] else 0,
+                1 if cleaned["greet_on_join"] else 0,
+                1 if cleaned["farewell_on_leave"] else 0,
+                1 if cleaned["restrict_voices"] else 0,
+                json.dumps(cleaned.get("allowed_voice_ids") or []),
+                updated_at,
+            ),
         )
         await self._conn.commit()

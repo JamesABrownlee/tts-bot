@@ -33,7 +33,10 @@ class LogBuffer:
         q: asyncio.Queue = asyncio.Queue(maxsize=max_queue)
         with self._lock:
             self._subscribers.add(q)
-            initial = list(self._lines)[-tail:]
+            if tail <= 0:
+                initial = []
+            else:
+                initial = list(self._lines)[-tail:]
         return LogSubscription(queue=q, initial_lines=initial)
 
     def unsubscribe(self, q: asyncio.Queue) -> None:

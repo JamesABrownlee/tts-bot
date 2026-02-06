@@ -8,6 +8,10 @@
 - `/voice` sets your personal voice (stored in SQLite). Use `/voice reset` to clear.
 - `/set voice` opens a voice picker menu (supports all voices, paginated).
 - `/set nickname` sets the name the bot will speak for you (stored in SQLite).
+- `/admin panel` (Manage Server) opens an interactive per-server settings panel.
+- `/admin show` shows the current per-server settings.
+- Optional per-server voice allowlist (restrict which voices members can pick), configurable in the Web UI or `/admin panel` (with previews in Web UI).
+- Optional join/leave greetings (good morning/afternoon/evening + goodbye), configurable per server in the Web UI or `/admin panel`.
 - Leaves automatically when no non-bot users remain in the voice channel.
 - Uses the same TikTok/Google fallback TTS pipeline as the JS bot.
 - Streams audio into ffmpeg via a pipe (no temp files).
@@ -51,18 +55,21 @@ docker run \\
   -e DISCORD_TOKEN=your_token_here \\
   -e WEB_HOST=0.0.0.0 \\
   -e WEB_PORT=8080 \\
-  -e WEB_UI_TOKEN=change_me \\
   -p 8080:8080 \\
   --restart unless-stopped \\
   tts-bot
 ```
+
+If you change `WEB_PORT`, make sure the published port (`-p host:container`) matches (e.g. `-e WEB_PORT=5091 -p 5091:5091`).
+Optional: set `WEB_UI_TOKEN` to a long random string to protect the Web UI API, then enter it on the Home page.
 
 ## Setup (Docker Compose)
 1. Create a `.env` file next to `docker-compose.yml`:
 
 ```bash
 DISCORD_TOKEN=your_token_here
-WEB_UI_TOKEN=change_me
+# Optional: protect the Web UI API (enter it on the Home page).
+WEB_UI_TOKEN=
 ```
 
 2. Start the bot:
@@ -70,6 +77,20 @@ WEB_UI_TOKEN=change_me
 ```bash
 docker compose up -d --build
 ```
+
+## First-time Server Setup
+After inviting the bot to your server, configure per-server settings using either:
+- Discord: run `/admin panel` (requires **Manage Server**)
+- Web UI: open `http://<WEB_HOST>:<WEB_PORT>/settings`
+
+Recommended settings to review:
+- Default Voice ID (server default)
+- Fallback Voice ID
+- Max TTS Characters
+- Auto Speak Voice Chat Messages
+- Leave When Alone In Voice Channel
+- (Optional) Voice restriction allowlist
+- (Optional) Join/leave greetings
 
 ## Notes
 - Requires `ffmpeg` + `libopus` on your system for local runs. Docker image includes them.
@@ -80,7 +101,8 @@ docker compose up -d --build
 - Web UI defaults: `http://127.0.0.1:8080` (override with `WEB_HOST`/`WEB_PORT`).
 - If `WEB_UI_TOKEN` is set, API routes require it (enter it on the Home page).
 - Disable Web UI with `WEB_UI_ENABLED=0`.
-- Settings persist to `settings.json` (or `SETTINGS_PATH`).
+- Settings persist per server to the SQLite DB (table `guild_settings`) at `data/tts.db` (or `DB_PATH`).
+- If voice restriction is enabled, Discord voice menus/autocomplete only show allowed voices. If a user's saved voice isn't allowed, the bot uses the server default voice.
 - Logs write to `data/tts.log` by default (override with `LOG_FILE_PATH`).
 - User voice choices persist to `data/tts.db` by default (override with `DB_PATH`).
 - For fast slash-command updates while developing, set `DEV_GUILD_ID` to your test server ID.

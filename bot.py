@@ -48,8 +48,9 @@ from discord.ext import commands
 
 from utils.config import COMMAND_PREFIX
 from utils.db import Database
+from utils.guild_settings_store import GuildSettingsStore
 from utils.logger import get_logger, init_root_logging
-from utils.settings_store import SettingsStore
+from utils.settings_store import VERSION, SettingsStore
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -63,6 +64,7 @@ logger = get_logger("bot")
 
 @bot.event
 async def setup_hook() -> None:
+    await bot.load_extension("cogs.admin")
     await bot.load_extension("cogs.tts")
     await bot.load_extension("cogs.webui")
 
@@ -84,7 +86,16 @@ async def setup_hook() -> None:
 
 @bot.event
 async def on_ready() -> None:
-    logger.info("Logged in as %s", bot.user)
+    logger.info("TTS BOT VERSION: %s", VERSION)
+    logger.info("By JamesABrownlee")
+    logger.info("Logged into Discord as %s", bot.user)
+    store = getattr(bot, "guild_settings", None)
+    if store is None:
+        return
+    try:
+        await store.preload([g.id for g in bot.guilds])
+    except Exception as exc:
+        logger.warning("Failed to preload guild settings: %s", exc)
 
 
 async def main() -> None:
@@ -93,11 +104,12 @@ async def main() -> None:
     bot.log_buffer = init_root_logging(loop)
     bot.settings = SettingsStore(os.getenv("SETTINGS_PATH") or "settings.json")
     await bot.settings.load()
-    logger.info("Settings file: %s", bot.settings.path)
+    logger.info("Settings defaults file: %s", bot.settings.path)
 
     bot.db = Database(os.getenv("DB_PATH") or "data/tts.db")
     await bot.db.connect()
     logger.info("Database file: %s", bot.db.path)
+    bot.guild_settings = GuildSettingsStore(bot.db, defaults=await bot.settings.get())
 
     token = os.getenv("DISCORD_TOKEN")
     if not token:

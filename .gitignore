@@ -22,6 +22,5 @@ __pycache__/
 .python-version
 
 # Bot runtime data
-tts-bot/data/
-tts-bot/settings.json
-
+data/
+settings.json
