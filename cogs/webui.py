@@ -599,15 +599,16 @@ def _settings_body() -> str:
 
 	  <div id="voiceRestrictBox" style="display:none;">
 	    <div class="inputrow" style="margin:0 0 10px 0;">
-	      <input id="voiceSearch" type="text" placeholder="Search voices…" />
+	      <input id="voiceFilter" type="text" placeholder="Filter voices…" />
 	      <input id="previewText" type="text" placeholder="Preview text (optional)" />
 	      <button class="btn small" id="selectAllVoices">All</button>
 	      <button class="btn small" id="selectNoneVoices">None</button>
+	      <button class="btn small" id="previewVoiceBtn">Preview</button>
 	    </div>
-	    <div class="voice-list" id="voiceList"><span class="muted">Loading voices…</span></div>
+	    <select id="allowedVoices" multiple size="12" style="width:100%; min-height:220px;"></select>
 	    <audio id="voicePlayer" style="width:100%; margin-top:10px; display:none;" controls></audio>
 	    <p class="muted" style="margin:10px 0 0 0;">
-	      Tip: Click Play to audition a voice (streamed from <code>/api/voices/preview</code>).
+	      Tip: Select multiple voices to build the allowlist (Ctrl/Cmd + click).
 	    </p>
 	  </div>
 
@@ -635,8 +636,8 @@ def _settings_body() -> str:
   const restrictPill = document.getElementById('restrictPill');
   const voiceCountPill = document.getElementById('voiceCountPill');
   const voiceRestrictBox = document.getElementById('voiceRestrictBox');
-  const voiceList = document.getElementById('voiceList');
-	  const voiceSearch = document.getElementById('voiceSearch');
+  const allowedVoices = document.getElementById('allowedVoices');
+	  const voiceFilter = document.getElementById('voiceFilter');
 	  const previewText = document.getElementById('previewText');
 	  const voicePlayer = document.getElementById('voicePlayer');
 	  const settingsJson = document.getElementById('settingsJson');
@@ -693,6 +694,7 @@ def _settings_body() -> str:
 	    const voices = (res && Array.isArray(res.voices)) ? res.voices : [];
 	    allVoices = voices.map(v => ({ id: String(v.id), name: String(v.name || v.id) }));
 	    renderVoiceSelects();
+	    renderAllowedSelect();
 	  }
 
 	  function renderVoiceSelects() {
@@ -758,6 +760,7 @@ def _settings_body() -> str:
 
 	    allowedSet = new Set(Array.isArray(current.allowed_voice_ids) ? current.allowed_voice_ids.map(String) : []);
 	    updateRestrictUi();
+	    renderAllowedSelect();
 	  }
 
   function requiredVoiceIds() {
@@ -797,83 +800,35 @@ def _settings_body() -> str:
     return '/api/voices/preview?' + qs.toString();
   }
 
-  function renderVoiceList() {
-    voiceList.textContent = '';
+  function renderAllowedSelect() {
+    if (!allowedVoices) return;
+    allowedVoices.textContent = '';
     if (!allVoices.length) {
-      const empty = document.createElement('div');
-      empty.className = 'muted';
-      empty.textContent = 'No voices loaded.';
-      voiceList.appendChild(empty);
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'No voices loaded.';
+      allowedVoices.appendChild(opt);
       updateVoiceCount();
       return;
     }
 
     syncRequiredVoices();
     const required = new Set(requiredVoiceIds());
-    const q = (voiceSearch.value || '').trim().toLowerCase();
-    let shown = 0;
+    const q = (voiceFilter.value || '').trim().toLowerCase();
 
     for (const v of allVoices) {
       const hay = (v.name + ' ' + v.id).toLowerCase();
       if (q && !hay.includes(q)) continue;
-      shown++;
-
-      const row = document.createElement('div');
-      row.className = 'voice-row';
-
-      const meta = document.createElement('div');
-      meta.className = 'voice-meta';
-
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.dataset.vid = v.id;
-      cb.checked = allowedSet.has(v.id);
+      const opt = document.createElement('option');
+      opt.value = v.id;
+      opt.textContent = v.name ? `${v.name} (${v.id})` : v.id;
+      if (allowedSet.has(v.id)) opt.selected = true;
       if (required.has(v.id)) {
-        cb.checked = true;
-        cb.disabled = true;
+        opt.selected = true;
+        opt.disabled = true;
         allowedSet.add(v.id);
       }
-
-      const textWrap = document.createElement('div');
-      textWrap.style.minWidth = '0';
-
-      const nameDiv = document.createElement('div');
-      nameDiv.className = 'voice-name';
-      nameDiv.textContent = v.name || v.id;
-
-      const idDiv = document.createElement('div');
-      idDiv.className = 'voice-id';
-      idDiv.textContent = v.id;
-
-      textWrap.appendChild(nameDiv);
-      textWrap.appendChild(idDiv);
-
-      meta.appendChild(cb);
-      meta.appendChild(textWrap);
-
-      const actions = document.createElement('div');
-      actions.className = 'inputrow';
-      actions.style.gap = '8px';
-
-      const playBtn = document.createElement('button');
-      playBtn.className = 'btn small';
-      playBtn.type = 'button';
-      playBtn.dataset.play = v.id;
-      playBtn.textContent = 'Play';
-
-      actions.appendChild(playBtn);
-
-      row.appendChild(meta);
-      row.appendChild(actions);
-
-      voiceList.appendChild(row);
-    }
-
-    if (!shown) {
-      const empty = document.createElement('div');
-      empty.className = 'muted';
-      empty.textContent = 'No voices match your search.';
-      voiceList.appendChild(empty);
+      allowedVoices.appendChild(opt);
     }
 
     updateVoiceCount();
@@ -883,7 +838,7 @@ def _settings_body() -> str:
 	    if (!current) return;
 	    pill(restrictPill, !!current.restrict_voices, current.restrict_voices ? 'enabled' : 'disabled');
 	    voiceRestrictBox.style.display = current.restrict_voices ? 'block' : 'none';
-	    if (current.restrict_voices) renderVoiceList();
+	    if (current.restrict_voices) renderAllowedSelect();
 	    updateVoiceCount();
 	  }
 
@@ -980,57 +935,52 @@ def _settings_body() -> str:
   document.getElementById('selectAllVoices').addEventListener('click', () => {
     allowedSet = new Set(allVoices.map(v => v.id));
     syncRequiredVoices();
-    renderVoiceList();
+    renderAllowedSelect();
   });
 
   document.getElementById('selectNoneVoices').addEventListener('click', () => {
     allowedSet = new Set();
     syncRequiredVoices();
-    renderVoiceList();
+    renderAllowedSelect();
   });
 
-  voiceSearch.addEventListener('input', () => {
+  voiceFilter.addEventListener('input', () => {
     if (!current || !current.restrict_voices) return;
-    renderVoiceList();
+    renderAllowedSelect();
   });
 
-  voiceList.addEventListener('change', (ev) => {
-    const t = ev.target;
-    if (!t || t.tagName !== 'INPUT' || t.type !== 'checkbox') return;
-    const vid = (t.dataset && t.dataset.vid) ? t.dataset.vid : '';
-    if (!vid) return;
-    if (t.checked) allowedSet.add(vid);
-    else allowedSet.delete(vid);
-    updateVoiceCount();
-  });
+  if (allowedVoices) {
+    allowedVoices.addEventListener('change', () => {
+      const selected = Array.from(allowedVoices.selectedOptions || []).map(opt => opt.value);
+      allowedSet = new Set(selected);
+      syncRequiredVoices();
+      renderAllowedSelect();
+    });
+  }
 
-  voiceList.addEventListener('click', (ev) => {
-    const btn = ev.target && ev.target.closest ? ev.target.closest('button[data-play]') : null;
-    if (!btn) return;
-
-    if (window.__TOKEN_REQUIRED__ && !(getToken() || '').trim()) {
-      saveMsg.textContent = 'Token required for preview. Set WEB_UI_TOKEN on Home.';
-      saveMsg.className = 'danger';
-      return;
-    }
-
-    const vid = btn.dataset.play;
-    if (!vid) return;
-    voicePlayer.style.display = 'block';
-    voicePlayer.src = buildPreviewUrl(vid);
-    voicePlayer.play().catch(() => {});
-  });
+  const previewVoiceBtn = document.getElementById('previewVoiceBtn');
+  if (previewVoiceBtn) {
+    previewVoiceBtn.addEventListener('click', () => {
+      if (!allowedVoices) return;
+      const selected = Array.from(allowedVoices.selectedOptions || []);
+      if (!selected.length) return;
+      const vid = selected[0].value;
+      voicePlayer.style.display = 'block';
+      voicePlayer.src = buildPreviewUrl(vid);
+      voicePlayer.play().catch(() => {});
+    });
+  }
 
   elFallbackVoice.addEventListener('change', () => {
     if (!current || !current.restrict_voices) return;
     syncRequiredVoices();
-    renderVoiceList();
+    renderAllowedSelect();
   });
 
 	  elDefaultVoice.addEventListener('change', () => {
 	    if (!current || !current.restrict_voices) return;
 	    syncRequiredVoices();
-	    renderVoiceList();
+	    renderAllowedSelect();
 	  });
 
 	  document.getElementById('refreshJsonBtn').addEventListener('click', () => {
