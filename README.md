@@ -16,6 +16,8 @@
 - Uses the same TikTok/Google fallback TTS pipeline as the JS bot.
 - Streams audio into ffmpeg via a pipe (no temp files).
 - Includes an aiohttp Web UI for logs + settings.
+- **NEW:** REST API endpoints for external bots to send TTS requests.
+- **NEW:** Voice testing page in the Web UI to preview and test voices.
 
 ## Setup (Local)
 1. Create a Discord application + bot, then copy the token.
@@ -98,6 +100,40 @@ Recommended settings to review:
   When a different person starts typing, it announces them as: `<name> said "<message>"`.
 - Commands are organized as cogs in `tts-bot/cogs/`.
 - Discord limits slash-command choice lists to 25 items; use `/set voice` to pick from the full voice list.
+
+## API Usage
+The bot now includes REST API endpoints for external applications and bots to send TTS requests programmatically.
+
+### Quick Start
+1. **Enable the Web UI** (enabled by default): Set `WEB_UI_ENABLED=true` in your environment
+2. **Set an API token** (recommended for security): Set `WEB_UI_TOKEN=your_secret_token` in your environment
+3. **Access the API**: Send POST requests to `http://<host>:<port>/api/tts`
+
+### Send a TTS Request
+```bash
+curl -X POST http://localhost:8080/api/tts \\
+  -H "Authorization: Bearer your_token_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "guild_id": "123456789012345678",
+    "text": "Hello from the API!",
+    "voice_id": "en_us_001"
+  }'
+```
+
+### Voice Testing Page
+Navigate to `http://<host>:<port>/test-voices` to:
+- Test different voices with custom text
+- Preview audio before sending to Discord
+- Send TTS directly to voice channels
+- View API usage examples
+
+For complete API documentation, see [API_DOCUMENTATION.md](API_DOCUMENTATION.md).
+
+For a Python test script, run:
+```bash
+python test_api.py
+```
 - Web UI defaults: `http://127.0.0.1:8080` (override with `WEB_HOST`/`WEB_PORT`).
 - If `WEB_UI_TOKEN` is set, API routes require it (enter it on the Home page).
 - Disable Web UI with `WEB_UI_ENABLED=0`.

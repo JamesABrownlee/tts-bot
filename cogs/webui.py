@@ -279,6 +279,7 @@ def _layout(title: str, body_html: str, *, token_required: bool) -> str:
         <a class=\"btn\" href=\"/\">Home</a>
         <a class=\"btn\" href=\"/logs\">Logs</a>
         <a class=\"btn\" href=\"/settings\">Settings</a>
+        <a class=\"btn\" href=\"/test-voices\">Test Voices</a>
         {token_banner}
       </nav>
     </header>
@@ -577,54 +578,42 @@ def _settings_body() -> str:
 	      <span class="pill" id="farewellLeavePill">loading…</span>
 	    </div>
 
-	    <div class="inputrow" style="margin-top:8px;">
-	      <button class="btn" id="saveBtn">Save Settings</button>
-	      <span class="muted" id="saveMsg"></span>
-	    </div>
+  <div class="inputrow" style="margin-top:8px; grid-column:1 / -1;">
+      <button class="btn" id="saveBtn">Save Settings</button>
+      <span class="muted" id="saveMsg"></span>
+    </div>
+
+    <div style="grid-column:1 / -1; height:1px; background: rgba(255,255,255,0.10); margin:6px 0 10px 0;"></div>
+
+    <div style="grid-column:1 / -1;">
+      <h3 style="margin:0 0 10px 0;">Allowed Voices</h3>
+      <p class="muted" style="margin:0 0 12px 0;">
+        When enabled, users can only pick voices you allow for this server (affects Discord menus and autocomplete).
+        Default + fallback voices are always forced into the allowlist while restriction is enabled.
+      </p>
+
+      <div class="inputrow" style="margin:0 0 10px 0;">
+        <button class="btn" id="toggleRestrict">Toggle</button>
+        <span class="pill" id="restrictPill">loading…</span>
+        <span class="pill" id="voiceCountPill">0 selected</span>
+      </div>
+
+      <div id="voiceRestrictBox" style="display:none;">
+        <div class="inputrow" style="margin:0 0 10px 0;">
+          <input id="voiceFilter" type="text" placeholder="Filter voices…" />
+          <input id="previewText" type="text" placeholder="Preview text (optional)" />
+          <button class="btn small" id="selectAllVoices">All</button>
+          <button class="btn small" id="selectNoneVoices">None</button>
+          <button class="btn small" id="previewVoiceBtn">Preview</button>
+        </div>
+        <select id="allowedVoices" multiple size="12" style="width:100%; min-height:220px;"></select>
+        <audio id="voicePlayer" style="width:100%; margin-top:10px; display:none;" controls></audio>
+        <p class="muted" style="margin:10px 0 0 0;">
+          Tip: Select multiple voices to build the allowlist (Ctrl/Cmd + click).
+        </p>
+      </div>
+    </div>
   </div>
-
-  <div style="height:1px; background: rgba(255,255,255,0.10); margin:14px 0;"></div>
-
-  <h3 style="margin:0 0 10px 0;">Voice Restriction</h3>
-  <p class="muted" style="margin:0 0 12px 0;">
-    When enabled, users can only pick voices you allow for this server (affects Discord menus and autocomplete).
-    Default + fallback voices are always forced into the allowlist while restriction is enabled.
-  </p>
-
-  <div class="inputrow" style="margin:0 0 10px 0;">
-    <button class="btn" id="toggleRestrict">Toggle</button>
-    <span class="pill" id="restrictPill">loading…</span>
-    <span class="pill" id="voiceCountPill">0 selected</span>
-  </div>
-
-	  <div id="voiceRestrictBox" style="display:none;">
-	    <div class="inputrow" style="margin:0 0 10px 0;">
-	      <input id="voiceFilter" type="text" placeholder="Filter voices…" />
-	      <input id="previewText" type="text" placeholder="Preview text (optional)" />
-	      <button class="btn small" id="selectAllVoices">All</button>
-	      <button class="btn small" id="selectNoneVoices">None</button>
-	      <button class="btn small" id="previewVoiceBtn">Preview</button>
-	    </div>
-	    <select id="allowedVoices" multiple size="12" style="width:100%; min-height:220px;"></select>
-	    <audio id="voicePlayer" style="width:100%; margin-top:10px; display:none;" controls></audio>
-	    <p class="muted" style="margin:10px 0 0 0;">
-	      Tip: Select multiple voices to build the allowlist (Ctrl/Cmd + click).
-	    </p>
-	  </div>
-
-	  <div style="height:1px; background: rgba(255,255,255,0.10); margin:14px 0;"></div>
-
-	  <h3 style="margin:0 0 10px 0;">Advanced (JSON)</h3>
-	  <p class="muted" style="margin:0 0 12px 0;">
-	    Edit the raw settings JSON for this server (useful if new settings are added later).
-	  </p>
-	  <textarea id="settingsJson" spellcheck="false"></textarea>
-	  <div class="inputrow" style="margin-top:10px;">
-	    <button class="btn small" id="refreshJsonBtn">Refresh JSON</button>
-	    <button class="btn small" id="applyJsonBtn">Apply JSON</button>
-	    <span class="muted" id="jsonMsg"></span>
-	  </div>
-	</div>
 
 	<script>
 	  const guildSelect = document.getElementById('guildSelect');
@@ -640,9 +629,6 @@ def _settings_body() -> str:
 	  const voiceFilter = document.getElementById('voiceFilter');
 	  const previewText = document.getElementById('previewText');
 	  const voicePlayer = document.getElementById('voicePlayer');
-	  const settingsJson = document.getElementById('settingsJson');
-	  const jsonMsg = document.getElementById('jsonMsg');
-
   let current = null;
   let allVoices = [];
   let allowedSet = new Set();
@@ -686,7 +672,6 @@ def _settings_body() -> str:
 	    if (!gid) return;
 	    current = await apiFetch('/api/settings?guild_id=' + encodeURIComponent(gid));
 	    applyCurrentToForm();
-	    refreshJsonFromCurrent();
 	  }
 
 	  async function loadVoices() {
@@ -883,16 +868,6 @@ def _settings_body() -> str:
 	    return payload;
 	  }
 
-	  function refreshJsonFromCurrent() {
-	    if (!settingsJson) return;
-	    settingsJson.value = JSON.stringify(current || {}, null, 2);
-	  }
-
-	  function refreshJsonFromForm() {
-	    if (!settingsJson) return;
-	    settingsJson.value = JSON.stringify(buildPayloadFromForm(), null, 2);
-	  }
-
 	  guildSelect.addEventListener('change', () => {
 	    localStorage.setItem('web_guild_id', selectedGuildId());
 	    loadSettings().catch(e => {
@@ -983,36 +958,6 @@ def _settings_body() -> str:
 	    renderAllowedSelect();
 	  });
 
-	  document.getElementById('refreshJsonBtn').addEventListener('click', () => {
-	    if (!current) return;
-	    jsonMsg.textContent = '';
-	    try {
-	      refreshJsonFromForm();
-	      jsonMsg.textContent = 'Refreshed.';
-	      jsonMsg.className = 'muted';
-	    } catch (e) {
-	      jsonMsg.textContent = 'Error: ' + e.message;
-	      jsonMsg.className = 'danger';
-	    }
-	  });
-
-	  document.getElementById('applyJsonBtn').addEventListener('click', () => {
-	    if (!current) return;
-	    jsonMsg.textContent = '';
-	    try {
-	      const raw = (settingsJson.value || '').trim();
-	      const obj = raw ? JSON.parse(raw) : {};
-	      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) throw new Error('JSON must be an object');
-	      current = obj;
-	      applyCurrentToForm();
-	      jsonMsg.textContent = 'Applied.';
-	      jsonMsg.className = 'muted';
-	    } catch (e) {
-	      jsonMsg.textContent = 'Error: ' + e.message;
-	      jsonMsg.className = 'danger';
-	    }
-	  });
-
 	  document.getElementById('saveBtn').addEventListener('click', async () => {
 	    saveMsg.textContent = '';
 	    try {
@@ -1027,7 +972,6 @@ def _settings_body() -> str:
 	      });
 	      allowedSet = new Set(Array.isArray(current.allowed_voice_ids) ? current.allowed_voice_ids.map(String) : []);
 	      updateRestrictUi();
-	      refreshJsonFromCurrent();
 	      saveMsg.textContent = 'Saved.';
 	      saveMsg.className = 'muted';
 	    } catch (e) {
@@ -1050,6 +994,252 @@ def _settings_body() -> str:
 """
 
 
+def _test_voices_body() -> str:
+    return """
+<div class="card">
+  <h2 style="margin:0 0 10px 0;">Test Voices</h2>
+  <p class="muted" style="margin:0 0 14px 0;">Test any voice with custom text. Select a server and voice channel to speak in, or just preview the voice audio.</p>
+  
+  <div class="inputrow" style="margin:0 0 10px 0;">
+    <label>Server:</label>
+    <select id="guildSelect" style="min-width:280px;">
+      <option value="">Loading...</option>
+    </select>
+  </div>
+  
+  <div class="inputrow" style="margin:0 0 10px 0;">
+    <label>Voice Channel:</label>
+    <select id="channelSelect" style="min-width:280px;">
+      <option value="">Select a server first</option>
+    </select>
+  </div>
+  
+  <div class="inputrow" style="margin:0 0 10px 0;">
+    <label>Voice:</label>
+    <select id="voiceSelect" style="min-width:280px;">
+      <option value="">Loading...</option>
+    </select>
+  </div>
+  
+  <div style="margin:0 0 10px 0;">
+    <label>Text to speak:</label>
+    <textarea id="ttsText" rows="4" placeholder="Enter text to speak..." style="min-height:100px; margin-top:8px;">Hello! This is a test of the text to speech system.</textarea>
+  </div>
+  
+  <div class="inputrow">
+    <button class="btn" id="previewBtn">Preview Audio Only</button>
+    <button class="btn" id="speakBtn">Speak in Voice Channel</button>
+  </div>
+  
+  <div id="statusMsg" class="muted" style="margin-top:10px;"></div>
+  
+  <audio id="audioPlayer" controls style="width:100%; margin-top:10px; display:none;"></audio>
+</div>
+
+<div class="card" style="margin-top:14px;">
+  <h3 style="margin:0 0 10px 0;">API Usage</h3>
+  <p class="muted" style="margin:0 0 10px 0;">External bots can send TTS requests via POST to <code>/api/tts</code></p>
+  
+  <pre class="log" style="max-height:300px;">POST /api/tts
+Content-Type: application/json
+Authorization: Bearer YOUR_TOKEN_HERE
+
+{
+  "guild_id": "1234567890",
+  "channel_id": "9876543210",
+  "text": "Hello from external bot!",
+  "voice_id": "en_us_001"  // optional
+}</pre>
+  
+  <p class="muted" style="margin:8px 0 0 0;">Response: <code>{"success": true, "message": "TTS queued"}</code></p>
+</div>
+
+<script>
+  const guildSelect = document.getElementById('guildSelect');
+  const channelSelect = document.getElementById('channelSelect');
+  const voiceSelect = document.getElementById('voiceSelect');
+  const ttsText = document.getElementById('ttsText');
+  const statusMsg = document.getElementById('statusMsg');
+  const audioPlayer = document.getElementById('audioPlayer');
+  const previewBtn = document.getElementById('previewBtn');
+  const speakBtn = document.getElementById('speakBtn');
+  
+  let guilds = [];
+  let voices = [];
+  
+  function showStatus(msg, isError = false) {
+    statusMsg.textContent = msg;
+    statusMsg.className = isError ? 'danger' : 'muted';
+  }
+  
+  async function loadGuilds() {
+    try {
+      const res = await apiFetch('/api/guilds');
+      guilds = (res && Array.isArray(res.guilds)) ? res.guilds : [];
+      
+      guildSelect.textContent = '';
+      if (!guilds.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No servers available';
+        guildSelect.appendChild(opt);
+        return;
+      }
+      
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Select a server...';
+      guildSelect.appendChild(placeholder);
+      
+      for (const g of guilds) {
+        const opt = document.createElement('option');
+        opt.value = g.id;
+        opt.textContent = g.name;
+        guildSelect.appendChild(opt);
+      }
+    } catch (e) {
+      showStatus('Error loading guilds: ' + e.message, true);
+    }
+  }
+  
+  async function loadVoices() {
+    try {
+      const res = await apiFetch('/api/voices');
+      voices = (res && Array.isArray(res.voices)) ? res.voices : [];
+      
+      voiceSelect.textContent = '';
+      for (const v of voices) {
+        const opt = document.createElement('option');
+        opt.value = v.id;
+        opt.textContent = v.name ? `${v.name} (${v.id})` : v.id;
+        voiceSelect.appendChild(opt);
+      }
+      
+      if (voices.length > 0) {
+        voiceSelect.value = voices[0].id;
+      }
+    } catch (e) {
+      showStatus('Error loading voices: ' + e.message, true);
+    }
+  }
+  
+  guildSelect.addEventListener('change', async () => {
+    const guildId = guildSelect.value;
+    channelSelect.textContent = '';
+    
+    if (!guildId) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Select a server first';
+      channelSelect.appendChild(opt);
+      return;
+    }
+    
+    // For now, we'll need the bot to provide voice channels via API
+    // For simplicity, just let user know to join a channel
+    const opt = document.createElement('option');
+    opt.value = 'auto';
+    opt.textContent = 'Auto-detect (bot joins your channel)';
+    channelSelect.appendChild(opt);
+    showStatus('Make sure you are in a voice channel in the selected server');
+  });
+  
+  previewBtn.addEventListener('click', async () => {
+    const voiceId = voiceSelect.value;
+    const text = ttsText.value.trim();
+    
+    if (!voiceId) {
+      showStatus('Please select a voice', true);
+      return;
+    }
+    
+    if (!text) {
+      showStatus('Please enter text to speak', true);
+      return;
+    }
+    
+    try {
+      showStatus('Generating audio preview...');
+      previewBtn.disabled = true;
+      
+      const url = '/api/voices/preview?voice_id=' + encodeURIComponent(voiceId) + 
+                  '&text=' + encodeURIComponent(text.substring(0, 200));
+      
+      const headers = authHeaders();
+      const response = await fetch(url, { headers });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate preview: ' + response.statusText);
+      }
+      
+      const blob = await response.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      
+      audioPlayer.src = audioUrl;
+      audioPlayer.style.display = 'block';
+      audioPlayer.play();
+      
+      showStatus('Preview ready. Playing audio...');
+    } catch (e) {
+      showStatus('Error: ' + e.message, true);
+    } finally {
+      previewBtn.disabled = false;
+    }
+  });
+  
+  speakBtn.addEventListener('click', async () => {
+    const guildId = guildSelect.value;
+    const voiceId = voiceSelect.value;
+    const text = ttsText.value.trim();
+    
+    if (!guildId) {
+      showStatus('Please select a server', true);
+      return;
+    }
+    
+    if (!voiceId) {
+      showStatus('Please select a voice', true);
+      return;
+    }
+    
+    if (!text) {
+      showStatus('Please enter text to speak', true);
+      return;
+    }
+    
+    try {
+      showStatus('Sending TTS request...');
+      speakBtn.disabled = true;
+      
+      const payload = {
+        guild_id: guildId,
+        text: text,
+        voice_id: voiceId
+      };
+      
+      const result = await apiFetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      showStatus(result.message || 'TTS request sent successfully!');
+    } catch (e) {
+      showStatus('Error: ' + e.message, true);
+    } finally {
+      speakBtn.disabled = false;
+    }
+  });
+  
+  // Load initial data
+  (async () => {
+    await loadGuilds();
+    await loadVoices();
+  })();
+</script>
+"""
+
+
 class WebUICog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -1065,6 +1255,8 @@ class WebUICog(commands.Cog):
         self._app.router.add_get("/", self.page_index)
         self._app.router.add_get("/logs", self.page_logs)
         self._app.router.add_get("/settings", self.page_settings)
+        self._app.router.add_get("/test-voices", self.page_test_voices)
+
 
         self._app.router.add_get("/api/status", self.api_status)
         self._app.router.add_get("/api/guilds", self.api_guilds)
@@ -1074,6 +1266,7 @@ class WebUICog(commands.Cog):
         self._app.router.add_get("/api/logs/stream", self.api_logs_stream)
         self._app.router.add_get("/api/settings", self.api_settings_get)
         self._app.router.add_post("/api/settings", self.api_settings_post)
+        self._app.router.add_post("/api/tts", self.api_tts_speak)
 
     @web.middleware
     async def _auth_middleware(self, request: web.Request, handler):
@@ -1086,6 +1279,7 @@ class WebUICog(commands.Cog):
                 "/api/voices",
                 "/api/voices/preview",
                 "/api/settings",
+                "/api/tts",  # Allow TTS requests without auth for testing
             }:
                 return await handler(request)
             token = _get_bearer_token(request)
@@ -1136,6 +1330,10 @@ class WebUICog(commands.Cog):
 
     async def page_settings(self, request: web.Request) -> web.Response:
         html = _layout("TTS Bot - Settings", _settings_body(), token_required=False)
+        return web.Response(text=html, content_type="text/html")
+
+    async def page_test_voices(self, request: web.Request) -> web.Response:
+        html = _layout("TTS Bot - Test Voices", _test_voices_body(), token_required=self._token_required)
         return web.Response(text=html, content_type="text/html")
 
     async def api_status(self, request: web.Request) -> web.Response:
@@ -1307,6 +1505,99 @@ class WebUICog(commands.Cog):
             return web.json_response({"error": str(exc)}, status=400)
 
         return web.json_response(updated)
+
+    async def api_tts_speak(self, request: web.Request) -> web.Response:
+        """API endpoint for external bots to send TTS requests."""
+        try:
+            payload: Dict[str, Any] = await request.json()
+        except json.JSONDecodeError:
+            raise web.HTTPBadRequest(text="Invalid JSON")
+
+        # Extract parameters
+        raw_guild_id = str(payload.get("guild_id", "")).strip()
+        if not raw_guild_id:
+            return web.json_response({"error": "guild_id is required"}, status=400)
+
+        try:
+            guild_id = int(raw_guild_id)
+        except ValueError:
+            return web.json_response({"error": "guild_id must be an integer"}, status=400)
+
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            return web.json_response({"error": "Unknown guild or bot not in that server"}, status=404)
+
+        text = str(payload.get("text", "")).strip()
+        if not text:
+            return web.json_response({"error": "text is required"}, status=400)
+
+        voice_id = str(payload.get("voice_id", "")).strip() or None
+        channel_id = payload.get("channel_id")
+
+        # Get the TTS cog
+        tts_cog = self.bot.get_cog("TTSCog")
+        if not tts_cog:
+            return web.json_response({"error": "TTS cog not loaded"}, status=500)
+
+        # Determine target channel
+        target_channel = None
+        state = tts_cog.get_state(guild_id)
+        
+        if channel_id:
+            # Specific channel requested
+            try:
+                channel_id = int(channel_id)
+                target_channel = guild.get_channel(channel_id)
+                if not target_channel or not isinstance(target_channel, discord.VoiceChannel):
+                    return web.json_response({"error": "Invalid voice channel"}, status=400)
+            except (ValueError, TypeError):
+                return web.json_response({"error": "channel_id must be an integer"}, status=400)
+        else:
+            # Check if bot is already connected to a channel in this guild
+            if state.voice_client and state.voice_client.is_connected():
+                target_channel = state.voice_client.channel
+            else:
+                # Try to find any voice channel with members
+                for channel in guild.voice_channels:
+                    if len(channel.members) > 0:
+                        target_channel = channel
+                        break
+                
+                if not target_channel:
+                    return web.json_response(
+                        {"error": "Bot is not in a voice channel. Join a voice channel first or specify channel_id"},
+                        status=400
+                    )
+
+        # Ensure bot is connected (will use existing connection if already in that channel)
+        ok = await tts_cog.ensure_connected(guild, target_channel)
+        if not ok:
+            locked_id = state.voice_channel_id
+            msg = "Bot is currently locked to another voice channel"
+            if locked_id:
+                msg = f"Bot is locked to channel {locked_id}"
+            return web.json_response({"error": msg}, status=409)
+
+        # Get settings and determine voice
+        settings = await tts_cog.get_settings(guild_id)
+        if voice_id:
+            voice_id = tts_cog._effective_voice_id(settings, voice_id, allow_default=True)
+        else:
+            # Use default voice
+            voice_id = str(settings.get("default_voice_id", FALLBACK_VOICE))
+
+        # Queue the TTS
+        state = tts_cog.get_state(guild_id)
+        from cogs.tts import QueueItem
+        await state.queue.put(QueueItem(text=text, voice_id=voice_id))
+
+        return web.json_response({
+            "success": True,
+            "message": "TTS queued successfully",
+            "guild_id": str(guild_id),
+            "channel_id": str(target_channel.id),
+            "voice_id": voice_id
+        })
 
 
 async def setup(bot: commands.Bot) -> None:

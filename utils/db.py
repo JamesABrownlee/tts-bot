@@ -27,6 +27,7 @@ class Database:
                 display_name TEXT NOT NULL,
                 nickname TEXT NULL,
                 voice_id TEXT NULL,
+                auto_join INTEGER NOT NULL DEFAULT 0,
                 updated_at INTEGER NOT NULL
             );
             """
@@ -109,6 +110,10 @@ class Database:
         # Add `nickname` if upgrading from an older schema.
         if "nickname" not in cols:
             await self._conn.execute("ALTER TABLE discord_users ADD COLUMN nickname TEXT NULL;")
+        if "auto_join" not in cols:
+            await self._conn.execute(
+                "ALTER TABLE discord_users ADD COLUMN auto_join INTEGER NOT NULL DEFAULT 0;"
+            )
 
     async def _ensure_guild_settings_columns(self) -> None:
         """Ensure guild settings schema is upgraded in-place for existing DBs."""
@@ -203,6 +208,15 @@ class Database:
                 nickname = nickname.strip()
             return nickname or None
 
+    async def get_user_auto_join(self, discord_id: int) -> bool:
+        if self._conn is None:
+            raise RuntimeError("Database not connected")
+        async with self._conn.execute(
+            "SELECT auto_join FROM discord_users WHERE discord_id = ?", (discord_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return bool(row and row[0])
+
     async def set_user_voice(self, discord_id: int, display_name: str, voice_id: str, updated_at: int) -> None:
         if self._conn is None:
             raise RuntimeError("Database not connected")
@@ -235,12 +249,37 @@ class Database:
         )
         await self._conn.commit()
 
+    async def set_user_auto_join(self, discord_id: int, display_name: str, auto_join: bool, updated_at: int) -> None:
+        if self._conn is None:
+            raise RuntimeError("Database not connected")
+        await self._conn.execute(
+            """
+            INSERT INTO discord_users(discord_id, display_name, auto_join, updated_at)
+            VALUES(?, ?, ?, ?)
+            ON CONFLICT(discord_id) DO UPDATE SET
+                display_name=excluded.display_name,
+                auto_join=excluded.auto_join,
+                updated_at=excluded.updated_at;
+            """,
+            (discord_id, display_name, 1 if auto_join else 0, updated_at),
+        )
+        await self._conn.commit()
+
     async def delete_user_voice(self, discord_id: int, updated_at: int) -> None:
         if self._conn is None:
             raise RuntimeError("Database not connected")
         await self._conn.execute(
             "UPDATE discord_users SET voice_id = NULL, updated_at = ? WHERE discord_id = ?",
             (updated_at, discord_id),
+        )
+        await self._conn.commit()
+
+    async def replace_user_voice(self, from_voice_id: str, to_voice_id: str, updated_at: int) -> None:
+        if self._conn is None:
+            raise RuntimeError("Database not connected")
+        await self._conn.execute(
+            "UPDATE discord_users SET voice_id = ?, updated_at = ? WHERE voice_id = ?",
+            (to_voice_id, updated_at, from_voice_id),
         )
         await self._conn.commit()
 

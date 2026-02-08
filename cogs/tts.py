@@ -20,6 +20,7 @@ logger = get_logger("tts")
 class QueueItem:
     text: str
     voice_id: str
+    volume: Optional[float] = None
 
 
 @dataclass
@@ -30,6 +31,7 @@ class GuildState:
     worker: Optional[asyncio.Task] = None
     connect_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     last_speaker_id: Optional[int] = None
+    last_connect_attempt: float = 0.0
 
 
 class VoicePickerView(discord.ui.View):
@@ -139,7 +141,7 @@ class VoicePickerView(discord.ui.View):
         await interaction.response.edit_message(view=self)
 
     async def _on_reset(self, interaction: discord.Interaction) -> None:
-        await self.cog._reset_voice_pref(self.member)
+        await self.cog._set_voice_pref(self.member, self.default_voice)
         self.current_voice = self.default_voice
 
         friendly = VOICE_ID_TO_NAME.get(self.default_voice)
@@ -166,12 +168,17 @@ class TTSCog(commands.Cog):
         self.user_voice_cache: dict[int, Optional[str]] = {}
         # Cache `discord_id -> nickname` (or None if unset).
         self.user_nickname_cache: dict[int, Optional[str]] = {}
+        # Cache `discord_id -> auto_join` (or None if unset).
+        self.user_auto_join_cache: dict[int, Optional[bool]] = {}
+        self._default_voice_by_guild: dict[int, str] = {}
 
     async def get_settings(self, guild_id: Optional[int] = None) -> dict:
         store = getattr(self.bot, "guild_settings", None)
         if store is not None and guild_id is not None:
             try:
-                return await store.get(guild_id)
+                settings = await store.get(guild_id)
+                await self._maybe_migrate_default_voice(guild_id, settings)
+                return settings
             except Exception as exc:
                 logger.warning("Failed to read guild settings: guild=%s err=%s", guild_id, exc)
 
@@ -189,6 +196,51 @@ class TTSCog(commands.Cog):
                 "allowed_voice_ids": [],
             }
         return await store.get()
+
+    def _bot_default_voice(self, settings: dict) -> str:
+        return str(settings.get("default_voice_id") or FALLBACK_VOICE).strip() or FALLBACK_VOICE
+
+    def _user_default_voice(self, settings: dict) -> str:
+        default_voice = self._bot_default_voice(settings)
+        fallback_voice = str(settings.get("fallback_voice") or FALLBACK_VOICE).strip() or FALLBACK_VOICE
+        if fallback_voice and fallback_voice != default_voice:
+            return fallback_voice
+        for vid, _name in ALL_VOICES:
+            if vid != default_voice:
+                return vid
+        return default_voice
+
+    async def _maybe_migrate_default_voice(self, guild_id: int, settings: dict) -> None:
+        new_default = self._bot_default_voice(settings)
+        old_default = self._default_voice_by_guild.get(guild_id)
+        replacement = self._user_default_voice(settings)
+
+        async def migrate_voice(voice_id: Optional[str]) -> None:
+            if not voice_id:
+                return
+            db = getattr(self.bot, "db", None)
+            if db is not None:
+                try:
+                    await db.replace_user_voice(voice_id, replacement, int(time.time()))
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to migrate user voices: old=%s new=%s err=%s",
+                        voice_id,
+                        replacement,
+                        exc,
+                    )
+            for uid, vid in list(self.user_voice_cache.items()):
+                if vid == voice_id:
+                    self.user_voice_cache[uid] = replacement
+
+        if old_default != new_default:
+            if old_default:
+                await migrate_voice(old_default)
+            await migrate_voice(new_default)
+        elif old_default is None:
+            await migrate_voice(new_default)
+
+        self._default_voice_by_guild[guild_id] = new_default
 
     def _allowed_voice_ids(self, settings: dict) -> Optional[set[str]]:
         if not settings.get("restrict_voices"):
@@ -209,40 +261,63 @@ class TTSCog(commands.Cog):
             return True
         return voice_id in allowed
 
-    def _effective_voice_id(self, settings: dict, requested_voice_id: Optional[str]) -> str:
-        default_voice = str(settings.get("default_voice_id") or FALLBACK_VOICE).strip() or FALLBACK_VOICE
+    def _effective_voice_id(
+        self, settings: dict, requested_voice_id: Optional[str], *, allow_default: bool = True
+    ) -> str:
+        default_voice = self._bot_default_voice(settings)
         fallback_voice = str(settings.get("fallback_voice") or FALLBACK_VOICE).strip() or FALLBACK_VOICE
-        voice_id = str(requested_voice_id or "").strip() or default_voice
+
+        if requested_voice_id:
+            voice_id = str(requested_voice_id).strip()
+        else:
+            voice_id = default_voice if allow_default else self._user_default_voice(settings)
+
+        if not allow_default and voice_id == default_voice:
+            voice_id = self._user_default_voice(settings)
 
         allowed = self._allowed_voice_ids(settings)
         if allowed is None:
             return voice_id
         if voice_id in allowed:
             return voice_id
+        if allow_default:
+            if default_voice in allowed:
+                return default_voice
+            if fallback_voice in allowed:
+                return fallback_voice
+            return voice_id
+
+        user_default = self._user_default_voice(settings)
+        if user_default in allowed:
+            return user_default
+        for vid in allowed:
+            if vid != default_voice:
+                return vid
         if default_voice in allowed:
             return default_voice
-        if fallback_voice in allowed:
-            return fallback_voice
         return voice_id
 
-    def _voice_items_for_settings(self, settings: dict) -> list[tuple[str, str]]:
+    def _voice_items_for_settings(self, settings: dict, *, exclude_voice_ids: Optional[set[str]] = None) -> list[tuple[str, str]]:
         allowed = self._allowed_voice_ids(settings)
+        excluded = exclude_voice_ids or set()
         if allowed is None:
-            return ALL_VOICES
+            return [(vid, name) for vid, name in ALL_VOICES if vid not in excluded]
         allowed_list = settings.get("allowed_voice_ids") or []
         if not isinstance(allowed_list, list):
             allowed_list = list(allowed)
 
-        items: list[tuple[str, str]] = [(vid, name) for vid, name in ALL_VOICES if vid in allowed]
+        items: list[tuple[str, str]] = [
+            (vid, name) for vid, name in ALL_VOICES if vid in allowed and vid not in excluded
+        ]
         known_ids = {vid for vid, _name in items}
         for vid in allowed_list:
             vid = str(vid or "").strip()
-            if not vid or vid in known_ids:
+            if not vid or vid in known_ids or vid in excluded:
                 continue
             items.append((vid, VOICE_ID_TO_NAME.get(vid, vid)))
             known_ids.add(vid)
 
-        return items or ALL_VOICES
+        return items or [(vid, name) for vid, name in ALL_VOICES if vid not in excluded]
 
     def get_state(self, guild_id: int) -> GuildState:
         state = self.state_by_guild.get(guild_id)
@@ -264,7 +339,13 @@ class TTSCog(commands.Cog):
                 try:
                     if not state.voice_client or not state.voice_client.is_connected():
                         continue
-                    await self.play_tts(guild_id, state.voice_client, item.text, item.voice_id)
+                    await self.play_tts(
+                        guild_id,
+                        state.voice_client,
+                        item.text,
+                        item.voice_id,
+                        volume=item.volume,
+                    )
                 finally:
                     state.queue.task_done()
 
@@ -275,7 +356,15 @@ class TTSCog(commands.Cog):
             await state.queue.put(None)
             await state.worker
 
-    async def play_tts(self, guild_id: int, voice_client: discord.VoiceClient, text: str, voice_id: str) -> None:
+    async def play_tts(
+        self,
+        guild_id: int,
+        voice_client: discord.VoiceClient,
+        text: str,
+        voice_id: str,
+        *,
+        volume: Optional[float] = None,
+    ) -> None:
         settings = await self.get_settings(guild_id)
         voice_id = self._effective_voice_id(settings, voice_id)
         max_tts_chars = int(settings.get("max_tts_chars", MAX_TTS_CHARS))
@@ -294,6 +383,9 @@ class TTSCog(commands.Cog):
             self.bot.loop.call_soon_threadsafe(done.set)
 
         source = discord.FFmpegPCMAudio(stream, pipe=True)
+        if volume is not None:
+            safe_volume = max(0.0, min(2.0, float(volume)))
+            source = discord.PCMVolumeTransformer(source, volume=safe_volume)
         voice_client.play(source, after=after_playback)
         await done.wait()
 
@@ -342,6 +434,20 @@ class TTSCog(commands.Cog):
         self.user_nickname_cache[discord_id] = nickname
         return nickname
 
+    async def get_user_auto_join(self, discord_id: int) -> bool:
+        cached = self.user_auto_join_cache.get(discord_id)
+        if cached is not None:
+            return cached
+
+        db = getattr(self.bot, "db", None)
+        if db is None:
+            self.user_auto_join_cache[discord_id] = False
+            return False
+
+        auto_join = await db.get_user_auto_join(discord_id)
+        self.user_auto_join_cache[discord_id] = bool(auto_join)
+        return bool(auto_join)
+
     async def _set_voice_pref(self, member: discord.Member, voice_id: str) -> None:
         db = getattr(self.bot, "db", None)
         if db is None:
@@ -378,6 +484,15 @@ class TTSCog(commands.Cog):
         await db.delete_user_nickname(member.id, int(time.time()))
         self.user_nickname_cache.pop(member.id, None)
 
+    async def _set_auto_join_pref(self, member: discord.Member, enabled: bool) -> None:
+        db = getattr(self.bot, "db", None)
+        if db is None:
+            raise RuntimeError("Database is not configured")
+
+        await self._upsert_user_display_name(member)
+        await db.set_user_auto_join(member.id, member.display_name, enabled, int(time.time()))
+        self.user_auto_join_cache[member.id] = bool(enabled)
+
     async def get_user_speak_name(self, member: discord.Member) -> str:
         nickname = await self.get_user_nickname(member.id)
         if nickname:
@@ -399,6 +514,23 @@ class TTSCog(commands.Cog):
         state = self.get_state(guild.id)
 
         async with state.connect_lock:
+            state_chan = getattr(state.voice_client, "channel", None)
+            guild_vc = guild.voice_client
+            guild_chan = getattr(guild_vc, "channel", None)
+            logger.info(
+                "Voice ensure: guild=%s target=%s state_vc=%s state_connected=%s state_chan=%s state_chan_name=%s "
+                "guild_vc=%s guild_connected=%s guild_chan=%s guild_chan_name=%s",
+                guild.id,
+                voice_channel.id,
+                bool(state.voice_client),
+                bool(state.voice_client and state.voice_client.is_connected()),
+                getattr(state_chan, "id", None),
+                getattr(state_chan, "name", None),
+                bool(guild_vc),
+                bool(guild_vc and guild_vc.is_connected()),
+                getattr(guild_chan, "id", None),
+                getattr(guild_chan, "name", None),
+            )
             # Already connected.
             if state.voice_client and state.voice_client.is_connected() and state.voice_client.channel:
                 if state.voice_client.channel.id == voice_channel.id:
@@ -407,6 +539,25 @@ class TTSCog(commands.Cog):
                 # Locked to another channel in the guild.
                 return False
 
+            # Discord may already have a live voice client not tracked in state.
+            if guild.voice_client and guild.voice_client.is_connected() and guild.voice_client.channel:
+                if guild.voice_client.channel.id == voice_channel.id:
+                    state.voice_client = guild.voice_client
+                    state.voice_channel_id = voice_channel.id
+                    return True
+                return False
+
+            now = time.time()
+            if state.last_connect_attempt and now - state.last_connect_attempt < 5.0:
+                logger.info(
+                    "Connect cooldown: guild=%s channel=%s wait=%.1fs",
+                    guild.id,
+                    voice_channel.id,
+                    5.0 - (now - state.last_connect_attempt),
+                )
+                return False
+            state.last_connect_attempt = now
+
             # Connect and lock.
             state.voice_channel_id = voice_channel.id
             state.last_speaker_id = None
@@ -414,7 +565,72 @@ class TTSCog(commands.Cog):
             logger.info("Connecting voice: guild=%s channel=%s", guild.id, voice_channel.id)
 
             try:
-                state.voice_client = await voice_channel.connect()
+                state.voice_client = await voice_channel.connect(self_deaf=True, timeout=20.0)
+            except discord.ClientException as exc:
+                if "Already connected" in str(exc):
+                    logger.warning(
+                        "Voice already connected, forcing reconnect: guild=%s channel=%s",
+                        guild.id,
+                        voice_channel.id,
+                    )
+                    vc = guild.voice_client
+                    if vc and vc.is_connected() and vc.channel:
+                        if vc.channel.id != voice_channel.id:
+                            try:
+                                await vc.move_to(voice_channel)
+                            except Exception as exc_move:
+                                logger.warning(
+                                    "Failed to move voice: guild=%s channel=%s err=%s",
+                                    guild.id,
+                                    voice_channel.id,
+                                    exc_move,
+                                )
+                                return False
+                        state.voice_client = vc
+                        state.voice_channel_id = voice_channel.id
+                        return True
+                    try:
+                        if state.voice_client:
+                            await state.voice_client.disconnect()
+                    except Exception:
+                        pass
+                    state.voice_client = None
+                    state.voice_channel_id = None
+                    await asyncio.sleep(0.5)
+                    if guild.voice_client and guild.voice_client.is_connected() and guild.voice_client.channel:
+                        if guild.voice_client.channel.id == voice_channel.id:
+                            state.voice_client = guild.voice_client
+                            state.voice_channel_id = voice_channel.id
+                            return True
+                    try:
+                        state.voice_client = await voice_channel.connect(self_deaf=True, timeout=20.0)
+                    except Exception as exc2:
+                        if "Already connected" in str(exc2):
+                            if guild.voice_client and guild.voice_client.is_connected() and guild.voice_client.channel:
+                                if guild.voice_client.channel.id == voice_channel.id:
+                                    state.voice_client = guild.voice_client
+                                    state.voice_channel_id = voice_channel.id
+                                    return True
+                        logger.warning(
+                            "Failed to reconnect voice: guild=%s channel=%s err=%s",
+                            guild.id,
+                            voice_channel.id,
+                            exc2,
+                        )
+                        state.voice_client = None
+                        state.voice_channel_id = None
+                        return False
+                    await self.ensure_worker(guild.id)
+                    return True
+                logger.warning(
+                    "Failed to connect voice: guild=%s channel=%s err=%s",
+                    guild.id,
+                    voice_channel.id,
+                    exc,
+                )
+                state.voice_client = None
+                state.voice_channel_id = None
+                return False
             except Exception as exc:
                 logger.warning(
                     "Failed to connect voice: guild=%s channel=%s err=%s",
@@ -527,13 +743,54 @@ class TTSCog(commands.Cog):
         await self._upsert_user_display_name(member)
 
         voice_id = await self.get_user_voice(member.id)
-        voice_id = self._effective_voice_id(settings, voice_id)
+        voice_id = self._effective_voice_id(settings, voice_id, allow_default=False)
 
         state = self.get_state(message.guild.id)
         text = message.content
-        if state.last_speaker_id != member.id:
+        is_status = False
+
+        def _is_image_attachment(att: discord.Attachment) -> bool:
+            ct = (att.content_type or "").lower()
+            if ct.startswith("image/"):
+                return True
+            name = (att.filename or "").lower()
+            return name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".svg"))
+
+        def _is_video_attachment(att: discord.Attachment) -> bool:
+            ct = (att.content_type or "").lower()
+            if ct.startswith("video/"):
+                return True
+            name = (att.filename or "").lower()
+            return name.endswith((".mp4", ".mov", ".webm", ".mkv", ".avi", ".wmv", ".flv", ".m4v"))
+
+        has_image = any(_is_image_attachment(a) for a in message.attachments)
+        has_video = any(_is_video_attachment(a) for a in message.attachments)
+        if not (has_image or has_video):
+            for emb in message.embeds:
+                et = (getattr(emb, "type", "") or "").lower()
+                if et == "image":
+                    has_image = True
+                elif et == "video":
+                    has_video = True
+
+        if has_image:
             speak_name = await self.get_user_speak_name(member)
-            text = f'{speak_name} said "{text}"'
+            text = f"{speak_name} posted an image"
+            is_status = True
+        elif has_video:
+            speak_name = await self.get_user_speak_name(member)
+            text = f"{speak_name} posted a video"
+            is_status = True
+        else:
+            lowered = (message.content or "").lower()
+            if "http://" in lowered or "https://" in lowered:
+                speak_name = await self.get_user_speak_name(member)
+                text = f"{speak_name} posted a link"
+                is_status = True
+
+        if not is_status and state.last_speaker_id != member.id:
+            speak_name = await self.get_user_speak_name(member)
+            text = f'{speak_name} said. "{text}"'
         state.last_speaker_id = member.id
         await state.queue.put(QueueItem(text=text, voice_id=voice_id))
 
@@ -556,6 +813,24 @@ class TTSCog(commands.Cog):
         if state.voice_client and state.voice_client.is_connected() and state.voice_client.channel:
             bot_channel = state.voice_client.channel
 
+        # Auto-join: follow users who opted in, as long as we're not already with people.
+        if not member.bot and after.channel is not None:
+            joined_channel = before.channel is None or before.channel.id != after.channel.id
+            if joined_channel:
+                wants_auto = await self.get_user_auto_join(member.id)
+                if wants_auto:
+                    target_channel = after.channel
+                    if bot_channel and bot_channel.id != target_channel.id:
+                        non_bot_members = [m for m in bot_channel.members if not m.bot]
+                        if len(non_bot_members) > 0:
+                            # Don't leave people already with the bot.
+                            pass
+                        else:
+                            await self.disconnect(member.guild.id, "auto_join_move")
+                            await self.ensure_connected(member.guild, target_channel)
+                    elif bot_channel is None:
+                        await self.ensure_connected(member.guild, target_channel)
+
         # Greetings/farewells only make sense when the bot is already in a voice channel.
         if bot_channel is not None and not member.bot:
             joined_bot_channel = (
@@ -572,7 +847,7 @@ class TTSCog(commands.Cog):
             if joined_bot_channel or left_bot_channel:
                 settings = await self.get_settings(member.guild.id)
                 default_voice = str(settings.get("default_voice_id", FALLBACK_VOICE))
-                voice_id = self._effective_voice_id(settings, default_voice)
+                voice_id = self._effective_voice_id(settings, default_voice, allow_default=True)
                 name = await self.get_user_greeting_name(member)
                 today_key = self._today_key()
 
@@ -595,7 +870,7 @@ class TTSCog(commands.Cog):
                     if not (state.voice_client and state.voice_client.is_connected()):
                         return
                     await self.ensure_worker(member.guild.id)
-                    await state.queue.put(QueueItem(text=greeting_text, voice_id=voice_id))
+                    await state.queue.put(QueueItem(text=greeting_text, voice_id=voice_id, volume=0.8))
 
                     if db is not None:
                         try:
@@ -610,7 +885,9 @@ class TTSCog(commands.Cog):
 
                 if left_bot_channel and settings.get("farewell_on_leave"):
                     await self.ensure_worker(member.guild.id)
-                    await state.queue.put(QueueItem(text=f"{self._random_farewell()} {name}", voice_id=voice_id))
+                    await state.queue.put(
+                        QueueItem(text=f"{self._random_farewell()} {name}", voice_id=voice_id, volume=0.8)
+                    )
 
         if state.voice_client and state.voice_client.is_connected():
             await self.check_should_leave(member.guild)
@@ -651,7 +928,7 @@ class TTSCog(commands.Cog):
         await self._upsert_user_display_name(member)
         settings = await self.get_settings(interaction.guild.id)
         voice_id = await self.get_user_voice(member.id)
-        voice_id = self._effective_voice_id(settings, voice_id)
+        voice_id = self._effective_voice_id(settings, voice_id, allow_default=False)
 
         state = self.get_state(interaction.guild.id)
         await state.queue.put(QueueItem(text=text, voice_id=voice_id))
@@ -682,7 +959,7 @@ class TTSCog(commands.Cog):
         if voice_id is None:
             saved_voice = await self.get_user_voice(member.id)
             saved_voice = saved_voice or default_voice
-            effective_voice = self._effective_voice_id(settings, saved_voice)
+            effective_voice = self._effective_voice_id(settings, saved_voice, allow_default=False)
 
             friendly = VOICE_ID_TO_NAME.get(effective_voice)
             suffix = f" ({friendly})" if friendly else ""
@@ -706,9 +983,19 @@ class TTSCog(commands.Cog):
             return
 
         if voice_id.lower() in {"reset", "default"}:
-            await db.delete_user_voice(member.id, int(time.time()))
-            self.user_voice_cache.pop(member.id, None)
-            await interaction.response.send_message(f"Reset your voice to default (`{default_voice}`).", ephemeral=True)
+            replacement = self._user_default_voice(settings)
+            await db.set_user_voice(member.id, member.display_name, replacement, int(time.time()))
+            self.user_voice_cache[member.id] = replacement
+            await interaction.response.send_message(
+                f"Reset your voice to `{replacement}` (bot voice is reserved).", ephemeral=True
+            )
+            return
+
+        if voice_id == default_voice:
+            await interaction.response.send_message(
+                "That voice is reserved for the bot. Please choose a different voice.",
+                ephemeral=True,
+            )
             return
 
         if allowed is not None and voice_id not in allowed:
@@ -726,9 +1013,14 @@ class TTSCog(commands.Cog):
         await interaction.response.send_message(f"Set your voice to `{voice_id}`{suffix}.", ephemeral=True)
 
     def _voice_autocomplete(
-        self, current: str, *, allowed_voice_ids: Optional[set[str]] = None
+        self,
+        current: str,
+        *,
+        allowed_voice_ids: Optional[set[str]] = None,
+        exclude_voice_ids: Optional[set[str]] = None,
     ) -> list[app_commands.Choice[str]]:
         current = (current or "").strip().lower()
+        excluded = exclude_voice_ids or set()
 
         def mk_choice(voice_id: str) -> app_commands.Choice[str]:
             name = VOICE_ID_TO_NAME.get(voice_id, voice_id)
@@ -738,6 +1030,8 @@ class TTSCog(commands.Cog):
         choices: list[app_commands.Choice[str]] = [app_commands.Choice(name="reset (clear preference)", value="reset")]
 
         def is_allowed(voice_id: str) -> bool:
+            if voice_id in excluded:
+                return False
             return allowed_voice_ids is None or voice_id in allowed_voice_ids
 
         if not current:
@@ -800,6 +1094,8 @@ class TTSCog(commands.Cog):
         if interaction.guild:
             settings = await self.get_settings(interaction.guild.id)
             allowed = self._allowed_voice_ids(settings)
+            default_voice = str(settings.get("default_voice_id", FALLBACK_VOICE))
+            return self._voice_autocomplete(current, allowed_voice_ids=allowed, exclude_voice_ids={default_voice})
         return self._voice_autocomplete(current, allowed_voice_ids=allowed)
 
     # -------------------- /set voice (Menu) --------------------
@@ -818,9 +1114,10 @@ class TTSCog(commands.Cog):
 
         settings = await self.get_settings(interaction.guild.id)
         default_voice = str(settings.get("default_voice_id", FALLBACK_VOICE))
+        reserved_voice = default_voice
         allowed = self._allowed_voice_ids(settings)
         saved_voice = await self.get_user_voice(member.id) or default_voice
-        current_voice = self._effective_voice_id(settings, saved_voice)
+        current_voice = self._effective_voice_id(settings, saved_voice, allow_default=False)
 
         db = getattr(self.bot, "db", None)
         if db is None:
@@ -839,8 +1136,8 @@ class TTSCog(commands.Cog):
             view = VoicePickerView(
                 self,
                 member,
-                voices=self._voice_items_for_settings(settings),
-                default_voice=default_voice,
+                voices=self._voice_items_for_settings(settings, exclude_voice_ids={reserved_voice}),
+                default_voice=self._user_default_voice(settings),
                 current_voice=current_voice,
                 allowed_voice_ids=allowed,
                 page=0,
@@ -859,8 +1156,19 @@ class TTSCog(commands.Cog):
             return
 
         if voice_id.lower() in {"reset", "default"}:
-            await self._reset_voice_pref(member)
-            await interaction.response.send_message(f"Reset your voice to default (`{default_voice}`).", ephemeral=True)
+            replacement = self._user_default_voice(settings)
+            await self._set_voice_pref(member, replacement)
+            await interaction.response.send_message(
+                f"Reset your voice to `{replacement}` (bot voice is reserved).",
+                ephemeral=True,
+            )
+            return
+
+        if voice_id == default_voice:
+            await interaction.response.send_message(
+                "That voice is reserved for the bot. Please choose a different voice.",
+                ephemeral=True,
+            )
             return
 
         if allowed is not None and voice_id not in allowed:
@@ -883,6 +1191,8 @@ class TTSCog(commands.Cog):
         if interaction.guild:
             settings = await self.get_settings(interaction.guild.id)
             allowed = self._allowed_voice_ids(settings)
+            default_voice = str(settings.get("default_voice_id", FALLBACK_VOICE))
+            return self._voice_autocomplete(current, allowed_voice_ids=allowed, exclude_voice_ids={default_voice})
         return self._voice_autocomplete(current, allowed_voice_ids=allowed)
 
     # -------------------- /set nickname --------------------
@@ -934,6 +1244,35 @@ class TTSCog(commands.Cog):
 
         await self._set_nickname_pref(member, nickname)
         await interaction.response.send_message(f"Saved! Your nickname is now `{nickname}`.", ephemeral=True)
+
+    # -------------------- /set followme --------------------
+
+    @set_group.command(name="followme", description="Have the bot auto-join your voice channel")
+    @app_commands.describe(enabled="Enable or disable auto-join")
+    async def set_followme(self, interaction: discord.Interaction, enabled: Optional[bool] = None) -> None:
+        if not interaction.guild:
+            return
+        if not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+            return
+
+        member = interaction.user
+        await self._upsert_user_display_name(member)
+
+        db = getattr(self.bot, "db", None)
+        if db is None:
+            await interaction.response.send_message("Database is not configured.", ephemeral=True)
+            return
+
+        if enabled is None:
+            current = await self.get_user_auto_join(member.id)
+            status = "enabled" if current else "disabled"
+            await interaction.response.send_message(f"Auto-join is currently `{status}` for you.", ephemeral=True)
+            return
+
+        await self._set_auto_join_pref(member, enabled)
+        status = "enabled" if enabled else "disabled"
+        await interaction.response.send_message(f"Auto-join is now `{status}` for you.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

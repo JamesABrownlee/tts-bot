@@ -24,3 +24,5 @@ __pycache__/
 # Bot runtime data
 data/
 settings.json
+
+files/
