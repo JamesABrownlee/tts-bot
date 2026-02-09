@@ -1,6 +1,6 @@
 services:
   tts-bot:
-    build: .
+    image: ghcr.io/jamesabrownlee/tts-bot:latest
     environment:
       DISCORD_TOKEN: ${DISCORD_TOKEN}
       WEB_HOST: ${WEB_HOST:-0.0.0.0}

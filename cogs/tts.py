@@ -27,6 +27,7 @@ class QueueItem:
 class GuildState:
     voice_client: Optional[discord.VoiceClient] = None
     voice_channel_id: Optional[int] = None  # locked voice channel
+    last_voice_channel_id: Optional[int] = None  # last successful connection
     queue: asyncio.Queue = field(default_factory=asyncio.Queue)
     worker: Optional[asyncio.Task] = None
     connect_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -171,6 +172,61 @@ class TTSCog(commands.Cog):
         # Cache `discord_id -> auto_join` (or None if unset).
         self.user_auto_join_cache: dict[int, Optional[bool]] = {}
         self._default_voice_by_guild: dict[int, str] = {}
+        self._health_task: Optional[asyncio.Task] = None
+
+    def cog_unload(self) -> None:
+        if self._health_task and not self._health_task.done():
+            self._health_task.cancel()
+
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        if self._health_task and not self._health_task.done():
+            return
+        self._health_task = asyncio.create_task(self._voice_health_loop())
+
+    async def _voice_health_loop(self) -> None:
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            try:
+                for guild in list(self.bot.guilds):
+                    state = self.state_by_guild.get(guild.id)
+                    if not state:
+                        continue
+
+                    vc = state.voice_client
+                    if vc and vc.is_connected() and vc.channel:
+                        state.last_voice_channel_id = vc.channel.id
+                        continue
+
+                    guild_vc = guild.voice_client
+                    if guild_vc and guild_vc.is_connected() and guild_vc.channel:
+                        state.voice_client = guild_vc
+                        state.last_voice_channel_id = guild_vc.channel.id
+                        continue
+
+                    target_id = state.voice_channel_id or state.last_voice_channel_id
+                    if not target_id:
+                        continue
+
+                    channel = guild.get_channel(target_id)
+                    if not isinstance(channel, (discord.VoiceChannel, discord.StageChannel)):
+                        continue
+
+                    non_bot_members = [m for m in channel.members if not m.bot]
+                    if not non_bot_members:
+                        continue
+
+                    ok = await self.ensure_connected(guild, channel)
+                    if ok:
+                        logger.info(
+                            "Voice health: reconnected guild=%s channel=%s",
+                            guild.id,
+                            channel.id,
+                        )
+            except Exception as exc:
+                logger.warning("Voice health loop error: %s", exc)
+
+            await asyncio.sleep(20)
 
     async def get_settings(self, guild_id: Optional[int] = None) -> dict:
         store = getattr(self.bot, "guild_settings", None)
@@ -544,6 +600,7 @@ class TTSCog(commands.Cog):
                 if guild.voice_client.channel.id == voice_channel.id:
                     state.voice_client = guild.voice_client
                     state.voice_channel_id = voice_channel.id
+                    state.last_voice_channel_id = voice_channel.id
                     return True
                 return False
 
@@ -560,6 +617,7 @@ class TTSCog(commands.Cog):
 
             # Connect and lock.
             state.voice_channel_id = voice_channel.id
+            state.last_voice_channel_id = voice_channel.id
             state.last_speaker_id = None
 
             logger.info("Connecting voice: guild=%s channel=%s", guild.id, voice_channel.id)
@@ -588,6 +646,7 @@ class TTSCog(commands.Cog):
                                 return False
                         state.voice_client = vc
                         state.voice_channel_id = voice_channel.id
+                        state.last_voice_channel_id = voice_channel.id
                         return True
                     try:
                         if state.voice_client:
@@ -601,6 +660,7 @@ class TTSCog(commands.Cog):
                         if guild.voice_client.channel.id == voice_channel.id:
                             state.voice_client = guild.voice_client
                             state.voice_channel_id = voice_channel.id
+                            state.last_voice_channel_id = voice_channel.id
                             return True
                     try:
                         state.voice_client = await voice_channel.connect(self_deaf=True, timeout=20.0)
@@ -610,6 +670,7 @@ class TTSCog(commands.Cog):
                                 if guild.voice_client.channel.id == voice_channel.id:
                                     state.voice_client = guild.voice_client
                                     state.voice_channel_id = voice_channel.id
+                                    state.last_voice_channel_id = voice_channel.id
                                     return True
                         logger.warning(
                             "Failed to reconnect voice: guild=%s channel=%s err=%s",
@@ -653,6 +714,8 @@ class TTSCog(commands.Cog):
                 await state.voice_client.disconnect()
             state.voice_client = None
             state.voice_channel_id = None
+            if reason in {"slash_leave", "alone"}:
+                state.last_voice_channel_id = None
             state.last_speaker_id = None
             await self.stop_worker(state)
 
@@ -1205,24 +1268,26 @@ class TTSCog(commands.Cog):
         if not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
             return
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
 
         member = interaction.user
         await self._upsert_user_display_name(member)
 
         db = getattr(self.bot, "db", None)
         if db is None:
-            await interaction.response.send_message("Database is not configured.", ephemeral=True)
+            await interaction.followup.send("Database is not configured.", ephemeral=True)
             return
 
         if nickname is None:
             current = await self.get_user_nickname(member.id)
             if current:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"Your nickname is set to `{current}` (this is what I'll speak).",
                     ephemeral=True,
                 )
             else:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"You don't have a nickname set. I'll use your Discord display name (`{member.display_name}`).\n"
                     "Set one with `/set nickname <name>`.",
                     ephemeral=True,
@@ -1232,18 +1297,18 @@ class TTSCog(commands.Cog):
         nickname = " ".join((nickname or "").strip().split())
         if not nickname or nickname.lower() in {"reset", "clear", "default"}:
             await self._reset_nickname_pref(member)
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Cleared your nickname. I'll use your Discord display name (`{member.display_name}`).",
                 ephemeral=True,
             )
             return
 
         if len(nickname) > 64:
-            await interaction.response.send_message("Nickname must be 64 characters or fewer.", ephemeral=True)
+            await interaction.followup.send("Nickname must be 64 characters or fewer.", ephemeral=True)
             return
 
         await self._set_nickname_pref(member, nickname)
-        await interaction.response.send_message(f"Saved! Your nickname is now `{nickname}`.", ephemeral=True)
+        await interaction.followup.send(f"Saved! Your nickname is now `{nickname}`.", ephemeral=True)
 
     # -------------------- /set followme --------------------
 
@@ -1255,24 +1320,26 @@ class TTSCog(commands.Cog):
         if not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
             return
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
 
         member = interaction.user
         await self._upsert_user_display_name(member)
 
         db = getattr(self.bot, "db", None)
         if db is None:
-            await interaction.response.send_message("Database is not configured.", ephemeral=True)
+            await interaction.followup.send("Database is not configured.", ephemeral=True)
             return
 
         if enabled is None:
             current = await self.get_user_auto_join(member.id)
             status = "enabled" if current else "disabled"
-            await interaction.response.send_message(f"Auto-join is currently `{status}` for you.", ephemeral=True)
+            await interaction.followup.send(f"Auto-join is currently `{status}` for you.", ephemeral=True)
             return
 
         await self._set_auto_join_pref(member, enabled)
         status = "enabled" if enabled else "disabled"
-        await interaction.response.send_message(f"Auto-join is now `{status}` for you.", ephemeral=True)
+        await interaction.followup.send(f"Auto-join is now `{status}` for you.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:
