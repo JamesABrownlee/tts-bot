@@ -45,6 +45,42 @@ JSON_SCHEMA = {
     "strict": True,
 }
 
+SUGGESTIONS_SYSTEM = (
+    "You are a music recommendation engine.\n"
+    "Return 5 similar songs to the seed track provided.\n"
+    "Rules:\n"
+    "- Output MUST be valid JSON in the required schema.\n"
+    "- Each suggestion must include title and artist.\n"
+    "- Do NOT include the seed track itself.\n"
+    "- No duplicates.\n"
+)
+
+SUGGESTIONS_SCHEMA = {
+    "name": "song_suggestions",
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "suggestions": {
+                "type": "array",
+                "minItems": 5,
+                "maxItems": 5,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "title": {"type": "string"},
+                        "artist": {"type": "string"},
+                    },
+                    "required": ["title", "artist"],
+                },
+            }
+        },
+        "required": ["suggestions"],
+    },
+    "strict": True,
+}
+
 def _strip_code_fences(text: str) -> str:
     value = (text or "").strip()
     if value.startswith("```"):
@@ -161,3 +197,91 @@ def dj_intro(
 
     fb = dj_intro_fallback(title=title, artist=artist, requested_by=requested_by, for_user=for_user)
     return (fb, last_raw, True) if return_debug else fb
+
+
+def song_suggestions(
+    *,
+    title: str,
+    artist: str,
+    return_debug: bool = False,
+) -> Union[list[dict[str, str]], Tuple[list[dict[str, str]], str, bool]]:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        return ([], "", True) if return_debug else []
+
+    client = OpenAI(api_key=api_key)
+    payload = {"title": title, "artist": artist}
+    user_content = (
+        "Generate similar song suggestions for this seed track.\n"
+        f"Payload:\n{json.dumps(payload, ensure_ascii=False)}"
+    )
+
+    last_raw = ""
+    for _ in range(2):  # 1 retry
+        if hasattr(client, "responses"):
+            resp = client.responses.create(
+                model=MODEL,
+                input=[
+                    {"role": "system", "content": SUGGESTIONS_SYSTEM},
+                    {"role": "user", "content": user_content},
+                ],
+                text={
+                    "format": {
+                        "type": "json_schema",
+                        "name": SUGGESTIONS_SCHEMA["name"],
+                        "schema": SUGGESTIONS_SCHEMA["schema"],
+                        "strict": SUGGESTIONS_SCHEMA["strict"],
+                    }
+                },
+                temperature=0.6,
+                max_output_tokens=220,
+            )
+            raw = _strip_code_fences(resp.output_text or "")
+        else:
+            resp = client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": SUGGESTIONS_SYSTEM},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0.6,
+                max_tokens=220,
+            )
+            raw = _strip_code_fences(resp.choices[0].message.content or "")
+
+        last_raw = raw
+        if not raw:
+            continue
+
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+
+        suggestions = data.get("suggestions")
+        if not isinstance(suggestions, list) or len(suggestions) != 5:
+            continue
+
+        cleaned: list[dict[str, str]] = []
+        seen = set()
+        seed_key = f"{(title or '').strip().lower()}::{(artist or '').strip().lower()}"
+        for item in suggestions:
+            if not isinstance(item, dict):
+                cleaned = []
+                break
+            t = str(item.get("title", "")).strip()
+            a = str(item.get("artist", "")).strip()
+            if not t or not a:
+                cleaned = []
+                break
+            key = f"{t.lower()}::{a.lower()}"
+            if key == seed_key or key in seen:
+                cleaned = []
+                break
+            seen.add(key)
+            cleaned.append({"title": t, "artist": a})
+
+        if len(cleaned) == 5:
+            return (cleaned, raw, False) if return_debug else cleaned
+
+    return ([], last_raw, True) if return_debug else []

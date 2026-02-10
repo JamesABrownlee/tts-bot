@@ -1089,6 +1089,28 @@ def _test_voices_body() -> str:
 </div>
 
 <div class="card" style="margin-top:14px;">
+  <h2 style="margin:0 0 10px 0;">Song Suggestions</h2>
+  <p class="muted" style="margin:0 0 14px 0;">Generate 5 similar songs for a seed track.</p>
+
+  <div class="inputrow" style="margin:0 0 10px 0;">
+    <label>Song Name:</label>
+    <input id="suggestSongName" type="text" placeholder="Song title" />
+  </div>
+
+  <div class="inputrow" style="margin:0 0 10px 0;">
+    <label>Artist:</label>
+    <input id="suggestArtist" type="text" placeholder="Artist name" />
+  </div>
+
+  <div class="inputrow">
+    <button class="btn" id="suggestBtn">Get Suggestions</button>
+  </div>
+
+  <div id="suggestStatusMsg" class="muted" style="margin-top:10px;"></div>
+  <pre id="suggestResults" class="log" style="max-height:260px; margin-top:10px; display:none;"></pre>
+</div>
+
+<div class="card" style="margin-top:14px;">
   <h3 style="margin:0 0 10px 0;">API Usage</h3>
   <p class="muted" style="margin:0 0 10px 0;">External bots can send TTS requests via POST to <code>/api/tts</code></p>
   
@@ -1124,6 +1146,11 @@ Authorization: Bearer YOUR_TOKEN_HERE
   const djSongFor = document.getElementById('djSongFor');
   const djSpeakBtn = document.getElementById('djSpeakBtn');
   const djStatusMsg = document.getElementById('djStatusMsg');
+  const suggestSongName = document.getElementById('suggestSongName');
+  const suggestArtist = document.getElementById('suggestArtist');
+  const suggestBtn = document.getElementById('suggestBtn');
+  const suggestStatusMsg = document.getElementById('suggestStatusMsg');
+  const suggestResults = document.getElementById('suggestResults');
   
   let guilds = [];
   let voices = [];
@@ -1136,6 +1163,11 @@ Authorization: Bearer YOUR_TOKEN_HERE
   function showDjStatus(msg, isError = false) {
     djStatusMsg.textContent = msg;
     djStatusMsg.className = isError ? 'danger' : 'muted';
+  }
+
+  function showSuggestStatus(msg, isError = false) {
+    suggestStatusMsg.textContent = msg;
+    suggestStatusMsg.className = isError ? 'danger' : 'muted';
   }
   
   async function loadGuilds() {
@@ -1398,6 +1430,53 @@ Authorization: Bearer YOUR_TOKEN_HERE
       djSpeakBtn.disabled = false;
     }
   });
+
+  suggestBtn.addEventListener('click', async () => {
+    const songName = (suggestSongName.value || '').trim();
+    const artist = (suggestArtist.value || '').trim();
+
+    if (!songName) {
+      showSuggestStatus('Please enter a song name', true);
+      return;
+    }
+    if (!artist) {
+      showSuggestStatus('Please enter an artist name', true);
+      return;
+    }
+
+    try {
+      showSuggestStatus('Generating suggestions...');
+      suggestBtn.disabled = true;
+      suggestResults.style.display = 'none';
+      suggestResults.textContent = '';
+
+      const payload = {
+        song_name: songName,
+        artist: artist,
+      };
+
+      const result = await apiFetch('/api/song-suggestions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const suggestions = (result && Array.isArray(result.suggestions)) ? result.suggestions : [];
+      if (!suggestions.length) {
+        showSuggestStatus('No suggestions returned.', true);
+        return;
+      }
+
+      const lines = suggestions.map((s, i) => `${i + 1}. ${s.title} — ${s.artist}`);
+      suggestResults.textContent = lines.join('\\n');
+      suggestResults.style.display = 'block';
+      showSuggestStatus('Suggestions ready.');
+    } catch (e) {
+      showSuggestStatus('Error: ' + e.message, true);
+    } finally {
+      suggestBtn.disabled = false;
+    }
+  });
   
   // Load initial data
   (async () => {
@@ -1437,6 +1516,7 @@ class WebUICog(commands.Cog):
         self._app.router.add_post("/api/tts", self.api_tts_speak)
 
         self._app.router.add_post("/api/radio-presenter", self.api_radio_presenter)
+        self._app.router.add_post("/api/song-suggestions", self.api_song_suggestions)
 
     @web.middleware
     async def _auth_middleware(self, request: web.Request, handler):
@@ -1451,6 +1531,7 @@ class WebUICog(commands.Cog):
                 "/api/settings",
                 "/api/tts",  # Allow TTS requests without auth for testing
                 "/api/radio-presenter",  # Allow settings access without auth for testing
+                "/api/song-suggestions",
             }:
                 return await handler(request)
             token = _get_bearer_token(request)
@@ -1625,6 +1706,43 @@ class WebUICog(commands.Cog):
             "voice_id": voice_id,
             "text": text_to_speak,
             "raw_intro": raw_intro,
+            "used_fallback": used_fallback,
+        })
+
+    async def api_song_suggestions(self, request: web.Request) -> web.Response:
+        if request.method != "POST":
+            raise web.HTTPMethodNotAllowed(method=request.method, allowed_methods=["POST"])
+        try:
+            data = await request.json()
+        except Exception:
+            raise web.HTTPBadRequest(text="Invalid JSON body")
+
+        song_name = (data.get("song_name") or "").strip()
+        artist = (data.get("artist") or "").strip()
+
+        if not song_name:
+            return web.json_response({"error": "song_name is required"}, status=400)
+        if not artist:
+            return web.json_response({"error": "artist is required"}, status=400)
+
+        from utils.open_ai import song_suggestions
+        try:
+            suggestions, raw, used_fallback = await asyncio.to_thread(
+                song_suggestions,
+                title=song_name,
+                artist=artist,
+                return_debug=True,
+            )
+        except Exception as exc:
+            logger.warning("Song suggestions failed: %s", exc)
+            suggestions, raw, used_fallback = [], "", True
+
+        return web.json_response({
+            "success": True,
+            "song_name": song_name,
+            "artist": artist,
+            "suggestions": suggestions,
+            "raw": raw,
             "used_fallback": used_fallback,
         })
 
