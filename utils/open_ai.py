@@ -45,6 +45,17 @@ JSON_SCHEMA = {
     "strict": True,
 }
 
+def _strip_code_fences(text: str) -> str:
+    value = (text or "").strip()
+    if value.startswith("```"):
+        lines = value.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        value = "\n".join(lines).strip()
+    return value
+
 
 def _has_title_artist(text: str, title: str, artist: str) -> bool:
     t = (title or "").strip().lower()
@@ -114,7 +125,7 @@ def dj_intro(
                 temperature=0.7,
                 max_output_tokens=180,
             )
-            raw = (resp.output_text or "").strip()
+            raw = _strip_code_fences(resp.output_text or "")
         else:
             # Older OpenAI SDK: fall back to chat completions.
             resp = client.chat.completions.create(
@@ -126,7 +137,7 @@ def dj_intro(
                 temperature=0.7,
                 max_tokens=180,
             )
-            raw = (resp.choices[0].message.content or "").strip()
+            raw = _strip_code_fences(resp.choices[0].message.content or "")
 
         last_raw = raw
         if not raw:

@@ -34,6 +34,17 @@ def build_text_json_schema_format(*, name: str, schema: Dict[str, Any], strict: 
         "strict": strict,
     }
 
+def _strip_code_fences(text: str) -> str:
+    value = (text or "").strip()
+    if value.startswith("```"):
+        lines = value.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        value = "\n".join(lines).strip()
+    return value
+
 
 def generate_structured(
     *,
@@ -91,7 +102,7 @@ def generate_structured(
                 temperature=config.temperature,
                 max_output_tokens=config.max_output_tokens,
             )
-            raw = (resp.output_text or "").strip()
+            raw = _strip_code_fences(resp.output_text or "")
         else:
             # Older OpenAI SDK: fall back to chat completions without structured output.
             resp = client.chat.completions.create(
@@ -103,7 +114,7 @@ def generate_structured(
                 temperature=config.temperature,
                 max_tokens=config.max_output_tokens,
             )
-            raw = (resp.choices[0].message.content or "").strip()
+            raw = _strip_code_fences(resp.choices[0].message.content or "")
 
         last_raw = raw
         if not raw:
