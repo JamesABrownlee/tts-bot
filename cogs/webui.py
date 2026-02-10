@@ -1037,6 +1037,58 @@ def _test_voices_body() -> str:
 </div>
 
 <div class="card" style="margin-top:14px;">
+  <h2 style="margin:0 0 10px 0;">Radio Presenter Test</h2>
+  <p class="muted" style="margin:0 0 14px 0;">Generate a DJ-style intro and speak it in a Discord voice channel.</p>
+
+  <div class="inputrow" style="margin:0 0 10px 0;">
+    <label>Server:</label>
+    <select id="djGuildSelect" style="min-width:280px;">
+      <option value="">Loading...</option>
+    </select>
+  </div>
+
+  <div class="inputrow" style="margin:0 0 10px 0;">
+    <label>Voice Channel:</label>
+    <select id="djChannelSelect" style="min-width:280px;">
+      <option value="">Select a server first</option>
+    </select>
+  </div>
+
+  <div class="inputrow" style="margin:0 0 10px 0;">
+    <label>Voice (optional):</label>
+    <select id="djVoiceSelect" style="min-width:280px;">
+      <option value="">Loading...</option>
+    </select>
+  </div>
+
+  <div class="inputrow" style="margin:0 0 10px 0;">
+    <label>Song Name:</label>
+    <input id="djSongName" type="text" placeholder="Song title" />
+  </div>
+
+  <div class="inputrow" style="margin:0 0 10px 0;">
+    <label>Artist:</label>
+    <input id="djArtist" type="text" placeholder="Artist name" />
+  </div>
+
+  <div class="inputrow" style="margin:0 0 10px 0;">
+    <label>Requested By (optional):</label>
+    <input id="djRequestedBy" type="text" placeholder="Requester name" />
+  </div>
+
+  <div class="inputrow" style="margin:0 0 10px 0;">
+    <label>For (optional):</label>
+    <input id="djSongFor" type="text" placeholder="Dedicated to" />
+  </div>
+
+  <div class="inputrow">
+    <button class="btn" id="djSpeakBtn">Generate + Speak</button>
+  </div>
+
+  <div id="djStatusMsg" class="muted" style="margin-top:10px;"></div>
+</div>
+
+<div class="card" style="margin-top:14px;">
   <h3 style="margin:0 0 10px 0;">API Usage</h3>
   <p class="muted" style="margin:0 0 10px 0;">External bots can send TTS requests via POST to <code>/api/tts</code></p>
   
@@ -1063,6 +1115,15 @@ Authorization: Bearer YOUR_TOKEN_HERE
   const audioPlayer = document.getElementById('audioPlayer');
   const previewBtn = document.getElementById('previewBtn');
   const speakBtn = document.getElementById('speakBtn');
+  const djGuildSelect = document.getElementById('djGuildSelect');
+  const djChannelSelect = document.getElementById('djChannelSelect');
+  const djVoiceSelect = document.getElementById('djVoiceSelect');
+  const djSongName = document.getElementById('djSongName');
+  const djArtist = document.getElementById('djArtist');
+  const djRequestedBy = document.getElementById('djRequestedBy');
+  const djSongFor = document.getElementById('djSongFor');
+  const djSpeakBtn = document.getElementById('djSpeakBtn');
+  const djStatusMsg = document.getElementById('djStatusMsg');
   
   let guilds = [];
   let voices = [];
@@ -1070,6 +1131,11 @@ Authorization: Bearer YOUR_TOKEN_HERE
   function showStatus(msg, isError = false) {
     statusMsg.textContent = msg;
     statusMsg.className = isError ? 'danger' : 'muted';
+  }
+
+  function showDjStatus(msg, isError = false) {
+    djStatusMsg.textContent = msg;
+    djStatusMsg.className = isError ? 'danger' : 'muted';
   }
   
   async function loadGuilds() {
@@ -1097,8 +1163,28 @@ Authorization: Bearer YOUR_TOKEN_HERE
         opt.textContent = g.name;
         guildSelect.appendChild(opt);
       }
+
+      djGuildSelect.textContent = '';
+      if (!guilds.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No servers available';
+        djGuildSelect.appendChild(opt);
+      } else {
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = 'Select a server...';
+        djGuildSelect.appendChild(placeholder);
+        for (const g of guilds) {
+          const opt = document.createElement('option');
+          opt.value = g.id;
+          opt.textContent = g.name;
+          djGuildSelect.appendChild(opt);
+        }
+      }
     } catch (e) {
       showStatus('Error loading guilds: ' + e.message, true);
+      showDjStatus('Error loading guilds: ' + e.message, true);
     }
   }
   
@@ -1118,8 +1204,21 @@ Authorization: Bearer YOUR_TOKEN_HERE
       if (voices.length > 0) {
         voiceSelect.value = voices[0].id;
       }
+
+      djVoiceSelect.textContent = '';
+      const noneOpt = document.createElement('option');
+      noneOpt.value = '';
+      noneOpt.textContent = 'Default voice';
+      djVoiceSelect.appendChild(noneOpt);
+      for (const v of voices) {
+        const opt = document.createElement('option');
+        opt.value = v.id;
+        opt.textContent = v.name ? `${v.name} (${v.id})` : v.id;
+        djVoiceSelect.appendChild(opt);
+      }
     } catch (e) {
       showStatus('Error loading voices: ' + e.message, true);
+      showDjStatus('Error loading voices: ' + e.message, true);
     }
   }
   
@@ -1142,6 +1241,25 @@ Authorization: Bearer YOUR_TOKEN_HERE
     opt.textContent = 'Auto-detect (bot joins your channel)';
     channelSelect.appendChild(opt);
     showStatus('Make sure you are in a voice channel in the selected server');
+  });
+
+  djGuildSelect.addEventListener('change', async () => {
+    const guildId = djGuildSelect.value;
+    djChannelSelect.textContent = '';
+
+    if (!guildId) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Select a server first';
+      djChannelSelect.appendChild(opt);
+      return;
+    }
+
+    const opt = document.createElement('option');
+    opt.value = 'auto';
+    opt.textContent = 'Auto-detect (bot joins your channel)';
+    djChannelSelect.appendChild(opt);
+    showDjStatus('Make sure you are in a voice channel in the selected server');
   });
   
   previewBtn.addEventListener('click', async () => {
@@ -1230,6 +1348,56 @@ Authorization: Bearer YOUR_TOKEN_HERE
       speakBtn.disabled = false;
     }
   });
+
+  djSpeakBtn.addEventListener('click', async () => {
+    const guildId = djGuildSelect.value;
+    const channelId = djChannelSelect.value;
+    const voiceId = djVoiceSelect.value;
+    const songName = (djSongName.value || '').trim();
+    const artist = (djArtist.value || '').trim();
+    const requestedBy = (djRequestedBy.value || '').trim();
+    const songFor = (djSongFor.value || '').trim();
+
+    if (!guildId) {
+      showDjStatus('Please select a server', true);
+      return;
+    }
+    if (!songName) {
+      showDjStatus('Please enter a song name', true);
+      return;
+    }
+    if (!artist) {
+      showDjStatus('Please enter an artist name', true);
+      return;
+    }
+
+    try {
+      showDjStatus('Generating DJ intro...');
+      djSpeakBtn.disabled = true;
+
+      const payload = {
+        guild_id: guildId,
+        song_name: songName,
+        artist: artist,
+      };
+      if (channelId && channelId !== 'auto') payload.channel_id = channelId;
+      if (voiceId) payload.voice = voiceId;
+      if (requestedBy) payload.requested_by = requestedBy;
+      if (songFor) payload.song_for = songFor;
+
+      const result = await apiFetch('/api/radio-presenter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      showDjStatus(result.message || 'DJ intro queued successfully!');
+    } catch (e) {
+      showDjStatus('Error: ' + e.message, true);
+    } finally {
+      djSpeakBtn.disabled = false;
+    }
+  });
   
   // Load initial data
   (async () => {
@@ -1268,6 +1436,8 @@ class WebUICog(commands.Cog):
         self._app.router.add_post("/api/settings", self.api_settings_post)
         self._app.router.add_post("/api/tts", self.api_tts_speak)
 
+        self._app.router.add_post("/api/radio-presenter", self.api_radio_presenter)
+
     @web.middleware
     async def _auth_middleware(self, request: web.Request, handler):
         if request.path.startswith("/api/") and self.token:
@@ -1280,6 +1450,7 @@ class WebUICog(commands.Cog):
                 "/api/voices/preview",
                 "/api/settings",
                 "/api/tts",  # Allow TTS requests without auth for testing
+                "/api/radio-presenter",  # Allow settings access without auth for testing
             }:
                 return await handler(request)
             token = _get_bearer_token(request)
@@ -1335,6 +1506,129 @@ class WebUICog(commands.Cog):
     async def page_test_voices(self, request: web.Request) -> web.Response:
         html = _layout("TTS Bot - Test Voices", _test_voices_body(), token_required=self._token_required)
         return web.Response(text=html, content_type="text/html")
+    
+    async def api_radio_presenter(self, request: web.Request) -> web.Response:
+        if request.method != "POST":
+            raise web.HTTPMethodNotAllowed(method=request.method, allowed_methods=["POST"])
+        try:
+            data = await request.json()
+        except Exception:
+            raise web.HTTPBadRequest(text="Invalid JSON body")
+        
+        song_name = (data.get("song_name") or "").strip()
+        artist = (data.get("artist") or "").strip()
+        raw_guild_id = str(data.get("guild_id") or "").strip()
+        channel_id = data.get("channel_id")
+        voice_id = (data.get("voice") or "").strip() or None
+        requested_by = data.get("requested_by")
+        song_for = data.get("song_for")
+        volume = data.get("volume", 0.5)
+
+        if not song_name:
+            return web.json_response({"error": "song_name is required"}, status=400)
+        if not artist:
+            return web.json_response({"error": "artist is required"}, status=400)
+        if not raw_guild_id:
+            return web.json_response({"error": "guild_id is required"}, status=400)
+        try:
+            guild_id = int(raw_guild_id)
+        except ValueError:
+            return web.json_response({"error": "guild_id must be an integer"}, status=400)
+
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            return web.json_response({"error": "Unknown guild or bot not in that server"}, status=404)
+
+        from utils.open_ai import dj_intro, dj_intro_fallback
+        try:
+            text_to_speak, raw_intro, used_fallback = await asyncio.to_thread(
+                dj_intro,
+                title=song_name,
+                artist=artist,
+                requested_by=requested_by,
+                for_user=song_for,
+                return_debug=True,
+            )
+        except Exception as exc:
+            logger.warning("DJ intro generation failed: %s", exc)
+            text_to_speak = dj_intro_fallback(
+                title=song_name,
+                artist=artist,
+                requested_by=requested_by,
+                for_user=song_for,
+            )
+            raw_intro = ""
+            used_fallback = True
+
+        text_to_speak = (text_to_speak or "").strip()
+        if not text_to_speak:
+            return web.json_response({"error": "Generated intro was empty"}, status=500)
+
+        if used_fallback:
+            logger.warning("DJ intro fallback used for guild %s. raw=%s", guild_id, raw_intro)
+        else:
+            logger.info("Generated DJ intro for guild %s: %s", guild_id, text_to_speak)
+
+        logger.info("Generated DJ intro for guild %s: %s", guild_id, text_to_speak)
+
+        tts_cog = self.bot.get_cog("TTSCog")
+        if not tts_cog:
+            return web.json_response({"error": "TTS cog not loaded"}, status=500)
+
+        target_channel = None
+        state = tts_cog.get_state(guild_id)
+
+        if channel_id:
+            try:
+                channel_id = int(channel_id)
+                target_channel = guild.get_channel(channel_id)
+                if not target_channel or not isinstance(target_channel, discord.VoiceChannel):
+                    return web.json_response({"error": "Invalid voice channel"}, status=400)
+            except (ValueError, TypeError):
+                return web.json_response({"error": "channel_id must be an integer"}, status=400)
+        else:
+            if state.voice_client and state.voice_client.is_connected():
+                target_channel = state.voice_client.channel
+            else:
+                for channel in guild.voice_channels:
+                    if len(channel.members) > 0:
+                        target_channel = channel
+                        break
+                if not target_channel:
+                    return web.json_response(
+                        {"error": "Bot is not in a voice channel. Join a voice channel first or specify channel_id"},
+                        status=400,
+                    )
+
+        ok = await tts_cog.ensure_connected(guild, target_channel)
+        if not ok:
+            locked_id = state.voice_channel_id
+            msg = "Bot is currently locked to another voice channel"
+            if locked_id:
+                msg = f"Bot is locked to channel {locked_id}"
+            return web.json_response({"error": msg}, status=409)
+
+        settings = await tts_cog.get_settings(guild_id)
+        if voice_id:
+            voice_id = tts_cog._effective_voice_id(settings, voice_id, allow_default=True)
+        else:
+            voice_id = str(settings.get("default_voice_id", FALLBACK_VOICE))
+
+        from cogs.tts import QueueItem
+        await state.queue.put(QueueItem(text=text_to_speak, voice_id=voice_id, volume=volume))
+
+        return web.json_response({
+            "success": True,
+            "message": "DJ intro queued successfully",
+            "guild_id": str(guild_id),
+            "channel_id": str(target_channel.id),
+            "voice_id": voice_id,
+            "text": text_to_speak,
+            "raw_intro": raw_intro,
+            "used_fallback": used_fallback,
+        })
+
+
 
     async def api_status(self, request: web.Request) -> web.Response:
         start_time = getattr(self.bot, "start_time", None)
