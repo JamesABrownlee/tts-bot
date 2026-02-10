@@ -89,33 +89,45 @@ def dj_intro(
     }
 
     last_raw = ""
-    for _ in range(2):  # 1 retry
-        resp = client.responses.create(
-            model=MODEL,
-            input=[
-                {"role": "system", "content": SYSTEM},
-                {
-                    "role": "user",
-                    "content": (
-                        "Generate the DJ intro JSON for this payload.\n"
-                        f"Payload:\n{json.dumps(payload, ensure_ascii=False)}"
-                    ),
-                },
-            ],
-            # ✅ Structured output for Responses API goes here:
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": JSON_SCHEMA["name"],
-                    "schema": JSON_SCHEMA["schema"],
-                    "strict": JSON_SCHEMA["strict"],
-                }
-            },
-            temperature=0.7,
-            max_output_tokens=180,
-        )
+    user_content = (
+        "Generate the DJ intro JSON for this payload.\n"
+        f"Payload:\n{json.dumps(payload, ensure_ascii=False)}"
+    )
 
-        raw = (resp.output_text or "").strip()
+    for _ in range(2):  # 1 retry
+        if hasattr(client, "responses"):
+            resp = client.responses.create(
+                model=MODEL,
+                input=[
+                    {"role": "system", "content": SYSTEM},
+                    {"role": "user", "content": user_content},
+                ],
+                # Structured output for Responses API
+                text={
+                    "format": {
+                        "type": "json_schema",
+                        "name": JSON_SCHEMA["name"],
+                        "schema": JSON_SCHEMA["schema"],
+                        "strict": JSON_SCHEMA["strict"],
+                    }
+                },
+                temperature=0.7,
+                max_output_tokens=180,
+            )
+            raw = (resp.output_text or "").strip()
+        else:
+            # Older OpenAI SDK: fall back to chat completions.
+            resp = client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": SYSTEM},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0.7,
+                max_tokens=180,
+            )
+            raw = (resp.choices[0].message.content or "").strip()
+
         last_raw = raw
         if not raw:
             continue

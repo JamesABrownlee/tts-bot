@@ -80,18 +80,31 @@ def generate_structured(
     attempts = 1 + max(0, config.retries)
 
     for _ in range(attempts):
-        resp = client.responses.create(
-            model=config.model,
-            input=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": content},
-            ],
-            text={"format": build_text_json_schema_format(name=schema_name, schema=schema, strict=schema_strict)},
-            temperature=config.temperature,
-            max_output_tokens=config.max_output_tokens,
-        )
+        if hasattr(client, "responses"):
+            resp = client.responses.create(
+                model=config.model,
+                input=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": content},
+                ],
+                text={"format": build_text_json_schema_format(name=schema_name, schema=schema, strict=schema_strict)},
+                temperature=config.temperature,
+                max_output_tokens=config.max_output_tokens,
+            )
+            raw = (resp.output_text or "").strip()
+        else:
+            # Older OpenAI SDK: fall back to chat completions without structured output.
+            resp = client.chat.completions.create(
+                model=config.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": content},
+                ],
+                temperature=config.temperature,
+                max_tokens=config.max_output_tokens,
+            )
+            raw = (resp.choices[0].message.content or "").strip()
 
-        raw = (resp.output_text or "").strip()
         last_raw = raw
         if not raw:
             continue
