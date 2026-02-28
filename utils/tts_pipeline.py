@@ -15,6 +15,7 @@ from .config import (
     USER_AGENT,
     VOICE_COOLDOWN_DURATION,
     VOICE_FAILURE_THRESHOLD,
+    TTS_HTTP_TIMEOUT,
 )
 
 
@@ -55,6 +56,23 @@ circuit_breakers = {
 }
 
 failed_voices: dict[str, dict] = {}
+
+_shared_session: Optional[aiohttp.ClientSession] = None
+
+
+def _get_session() -> aiohttp.ClientSession:
+    global _shared_session
+    if _shared_session is None or _shared_session.closed:
+        timeout = aiohttp.ClientTimeout(total=TTS_HTTP_TIMEOUT)
+        _shared_session = aiohttp.ClientSession(timeout=timeout, headers={"User-Agent": USER_AGENT})
+    return _shared_session
+
+
+async def close_session() -> None:
+    global _shared_session
+    if _shared_session and not _shared_session.closed:
+        await _shared_session.close()
+    _shared_session = None
 
 
 def mark_voice_failed(voice_id: str) -> None:
@@ -265,20 +283,13 @@ async def _decode_tiktok_json_base64_stream(
 
 
 async def _open_google_stream(text: str, voice_id: str, stream: QueueStream) -> asyncio.Task:
-    timeout = aiohttp.ClientTimeout(total=15)
     params = {"ie": "UTF-8", "q": text, "tl": "en", "client": "tw-ob"}
-    headers = {"User-Agent": USER_AGENT}
 
-    session = aiohttp.ClientSession(timeout=timeout, headers=headers)
-    try:
-        resp = await session.get(GOOGLE_TTS_URL, params=params)
-    except Exception:
-        await session.close()
-        raise
+    session = _get_session()
+    resp = await session.get(GOOGLE_TTS_URL, params=params)
 
     if resp.status != 200:
         resp.release()
-        await session.close()
         raise TTSAPIError(f"Google TTS HTTP {resp.status}", voice_id, resp.status)
 
     async def producer() -> None:
@@ -288,22 +299,20 @@ async def _open_google_stream(text: str, voice_id: str, stream: QueueStream) -> 
         finally:
             stream.close()
             resp.release()
-            await session.close()
 
     return asyncio.create_task(producer())
 
 
 async def _open_tiktok_stream(text: str, voice_id: str, stream: QueueStream) -> asyncio.Task:
-    timeout = aiohttp.ClientTimeout(total=15)
     headers = {"User-Agent": USER_AGENT}
     url = TIKTOK_TTS_URL
     payload = {"text": text, "voice": voice_id}
 
-    session = aiohttp.ClientSession(timeout=timeout, headers=headers)
+    session = _get_session()
     resp: Optional[aiohttp.ClientResponse] = None
     try:
         for _ in range(6):
-            resp = await session.post(url, json=payload, allow_redirects=False)
+            resp = await session.post(url, json=payload, allow_redirects=False, headers=headers)
             if 300 <= resp.status < 400 and resp.headers.get("Location"):
                 url = resp.headers["Location"]
                 resp.release()
@@ -340,13 +349,11 @@ async def _open_tiktok_stream(text: str, voice_id: str, stream: QueueStream) -> 
             finally:
                 stream.close()
                 resp.release()
-                await session.close()
 
         return asyncio.create_task(producer())
     except Exception:
         if resp is not None:
             resp.release()
-        await session.close()
         raise
 
 

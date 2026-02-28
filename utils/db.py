@@ -45,6 +45,7 @@ class Database:
                 farewell_on_leave INTEGER NOT NULL DEFAULT 0,
                 restrict_voices INTEGER NOT NULL DEFAULT 0,
                 allowed_voice_ids TEXT NOT NULL DEFAULT '[]',
+                allowlist_text_channel_ids TEXT NOT NULL DEFAULT '[]',
                 updated_at INTEGER NOT NULL
             );
             """
@@ -139,6 +140,10 @@ class Database:
         if "allowed_voice_ids" not in cols:
             await self._conn.execute(
                 "ALTER TABLE guild_settings ADD COLUMN allowed_voice_ids TEXT NOT NULL DEFAULT '[]';"
+            )
+        if "allowlist_text_channel_ids" not in cols:
+            await self._conn.execute(
+                "ALTER TABLE guild_settings ADD COLUMN allowlist_text_channel_ids TEXT NOT NULL DEFAULT '[]';"
             )
 
     async def get_member_last_seen(self, guild_id: int, user_id: int) -> Optional[str]:
@@ -301,7 +306,8 @@ class Database:
                 max_tts_chars, fallback_voice, default_voice_id,
                 auto_read_messages, leave_when_alone,
                 greet_on_join, farewell_on_leave,
-                restrict_voices, allowed_voice_ids
+                restrict_voices, allowed_voice_ids,
+                allowlist_text_channel_ids
             FROM guild_settings
             WHERE guild_id = ?
             """,
@@ -320,6 +326,15 @@ class Database:
             except Exception:
                 allowed = []
 
+            allowlist_raw = row[9] or "[]"
+            allowlist: Any
+            if isinstance(allowlist_raw, (bytes, bytearray)):
+                allowlist_raw = allowlist_raw.decode("utf-8", errors="replace")
+            try:
+                allowlist = json.loads(str(allowlist_raw))
+            except Exception:
+                allowlist = []
+
             raw = {
                 "max_tts_chars": row[0],
                 "fallback_voice": row[1],
@@ -330,6 +345,7 @@ class Database:
                 "farewell_on_leave": bool(row[6]),
                 "restrict_voices": bool(row[7]),
                 "allowed_voice_ids": allowed,
+                "allowlist_text_channel_ids": allowlist,
             }
             return validate_settings(raw)
 
@@ -344,9 +360,10 @@ class Database:
                 auto_read_messages, leave_when_alone,
                 greet_on_join, farewell_on_leave,
                 restrict_voices, allowed_voice_ids,
+                allowlist_text_channel_ids,
                 updated_at
             )
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(guild_id) DO NOTHING;
             """,
             (
@@ -360,6 +377,7 @@ class Database:
                 1 if cleaned["farewell_on_leave"] else 0,
                 1 if cleaned["restrict_voices"] else 0,
                 json.dumps(cleaned.get("allowed_voice_ids") or []),
+                json.dumps(cleaned.get("allowlist_text_channel_ids") or []),
                 updated_at,
             ),
         )
@@ -376,9 +394,10 @@ class Database:
                 auto_read_messages, leave_when_alone,
                 greet_on_join, farewell_on_leave,
                 restrict_voices, allowed_voice_ids,
+                allowlist_text_channel_ids,
                 updated_at
             )
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(guild_id) DO UPDATE SET
                 max_tts_chars=excluded.max_tts_chars,
                 fallback_voice=excluded.fallback_voice,
@@ -389,6 +408,7 @@ class Database:
                 farewell_on_leave=excluded.farewell_on_leave,
                 restrict_voices=excluded.restrict_voices,
                 allowed_voice_ids=excluded.allowed_voice_ids,
+                allowlist_text_channel_ids=excluded.allowlist_text_channel_ids,
                 updated_at=excluded.updated_at;
             """,
             (
@@ -402,6 +422,7 @@ class Database:
                 1 if cleaned["farewell_on_leave"] else 0,
                 1 if cleaned["restrict_voices"] else 0,
                 json.dumps(cleaned.get("allowed_voice_ids") or []),
+                json.dumps(cleaned.get("allowlist_text_channel_ids") or []),
                 updated_at,
             ),
         )

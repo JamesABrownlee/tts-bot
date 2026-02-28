@@ -9,7 +9,7 @@ import discord
 from aiohttp import web
 from discord.ext import commands
 
-from utils.config import ALL_VOICES, FALLBACK_VOICE, VOICE_ID_TO_NAME
+from utils.config import ALL_VOICE_IDS, ALL_VOICES, FALLBACK_VOICE, VOICE_ID_TO_NAME
 from utils.logger import get_logger
 from utils.settings_store import VERSION
 from utils.tts_pipeline import get_tts_stream
@@ -572,11 +572,14 @@ def _settings_body() -> str:
 	      <span class="pill" id="greetJoinPill">loading…</span>
 	    </div>
 
-	    <label class="muted">Say Goodbye On Leave</label>
-	    <div class="inputrow">
-	      <button class="btn" id="toggleFarewellLeave">Toggle</button>
-	      <span class="pill" id="farewellLeavePill">loading…</span>
-	    </div>
+    <label class="muted">Say Goodbye On Leave</label>
+    <div class="inputrow">
+      <button class="btn" id="toggleFarewellLeave">Toggle</button>
+      <span class="pill" id="farewellLeavePill">loading…</span>
+    </div>
+
+    <label class="muted">Allowlist Text Channel IDs</label>
+    <input id="allowlistChannels" type="text" placeholder="123, 456, 789" />
 
   <div class="inputrow" style="margin-top:8px; grid-column:1 / -1;">
       <button class="btn" id="saveBtn">Save Settings</button>
@@ -621,6 +624,7 @@ def _settings_body() -> str:
   const elMaxChars = document.getElementById('maxChars');
   const elFallbackVoice = document.getElementById('fallbackVoice');
   const elDefaultVoice = document.getElementById('defaultVoice');
+  const elAllowlistChannels = document.getElementById('allowlistChannels');
   const saveMsg = document.getElementById('saveMsg');
   const restrictPill = document.getElementById('restrictPill');
   const voiceCountPill = document.getElementById('voiceCountPill');
@@ -737,6 +741,10 @@ def _settings_body() -> str:
 		    current.greet_on_join = !!current.greet_on_join;
 		    current.farewell_on_leave = !!current.farewell_on_leave;
 		    current.restrict_voices = !!current.restrict_voices;
+        const allowlist = Array.isArray(current.allowlist_text_channel_ids) ? current.allowlist_text_channel_ids : [];
+        if (elAllowlistChannels) {
+          elAllowlistChannels.value = allowlist.join(', ');
+        }
 
 		    pill(document.getElementById('autoReadPill'), current.auto_read_messages, current.auto_read_messages ? 'enabled' : 'disabled');
 		    pill(document.getElementById('leavePill'), current.leave_when_alone, current.leave_when_alone ? 'enabled' : 'disabled');
@@ -864,6 +872,19 @@ def _settings_body() -> str:
 		    payload.farewell_on_leave = !!(current && current.farewell_on_leave);
 		    payload.restrict_voices = !!(current && current.restrict_voices);
 		    payload.allowed_voice_ids = orderedAllowedVoiceIds();
+        if (elAllowlistChannels) {
+          const raw = (elAllowlistChannels.value || '').trim();
+          const ids = raw ? raw.split(',').map(x => x.trim()).filter(Boolean) : [];
+          const cleaned = [];
+          const seen = new Set();
+          for (const id of ids) {
+            const n = parseInt(id, 10);
+            if (!Number.isFinite(n) || n <= 0 || seen.has(n)) continue;
+            seen.add(n);
+            cleaned.push(n);
+          }
+          payload.allowlist_text_channel_ids = cleaned;
+        }
 
 	    return payload;
 	  }
@@ -1126,6 +1147,19 @@ Authorization: Bearer YOUR_TOKEN_HERE
 }</pre>
   
   <p class="muted" style="margin:8px 0 0 0;">Response: <code>{"success": true, "message": "TTS queued"}</code></p>
+
+  <p class="muted" style="margin:16px 0 10px 0;">Get song suggestions via POST to <code>/api/song-suggestions</code></p>
+  
+  <pre class="log" style="max-height:300px;">POST /api/song-suggestions
+Content-Type: application/json
+Authorization: Bearer YOUR_TOKEN_HERE
+
+{
+  "song_name": "Blinding Lights",
+  "artist": "The Weeknd"
+}</pre>
+  
+  <p class="muted" style="margin:8px 0 0 0;">Response: <code>{"success": true, "suggestions": [{"title": "Save Your Tears", "artist": "The Weeknd"}, {"title": "Take My Breath", "artist": "The Weeknd"}]}</code></p>
 </div>
 
 <script>
@@ -1487,6 +1521,164 @@ Authorization: Bearer YOUR_TOKEN_HERE
 """
 
 
+def _obs_player_body() -> str:
+    return """
+<section class="card">
+  <h2>OBS Browser Source Player</h2>
+  <p class="muted">Streams TTS audio over WebSocket and plays it in the browser source.</p>
+</section>
+
+<section class="card">
+  <h3>Connection</h3>
+  <div class="inputrow">
+    <label>
+      WebSocket URL
+      <input id="wsUrl" type="text" placeholder="ws://127.0.0.1:8080/ws/tts" />
+    </label>
+    <label>
+      Token (optional)
+      <input id="token" type="text" placeholder="WEB_UI_TOKEN" />
+    </label>
+    <button class="btn" id="connectBtn">Connect</button>
+    <button class="btn" id="disconnectBtn">Disconnect</button>
+  </div>
+  <div class="pill" id="connStatus">Disconnected</div>
+</section>
+
+<section class="card">
+  <h3>Speak</h3>
+  <div class="inputrow">
+    <label>
+      Voice ID
+      <input id="voiceId" type="text" placeholder="google_translate" />
+    </label>
+  </div>
+  <textarea id="ttsText" placeholder="Type text to play in OBS..."></textarea>
+  <div class="inputrow" style="margin-top: 10px;">
+    <button class="btn" id="sendBtn">Send</button>
+    <button class="btn" id="clearBtn">Clear</button>
+  </div>
+  <p class="muted" id="playStatus">Idle</p>
+  <audio id="player" preload="auto"></audio>
+</section>
+
+<script>
+  const wsUrlEl = document.getElementById('wsUrl');
+  const tokenEl = document.getElementById('token');
+  const connectBtn = document.getElementById('connectBtn');
+  const disconnectBtn = document.getElementById('disconnectBtn');
+  const connStatus = document.getElementById('connStatus');
+  const voiceIdEl = document.getElementById('voiceId');
+  const ttsTextEl = document.getElementById('ttsText');
+  const sendBtn = document.getElementById('sendBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const playStatus = document.getElementById('playStatus');
+  const player = document.getElementById('player');
+
+  let ws = null;
+  let chunks = [];
+
+  const setStatus = (text, isError = false) => {
+    connStatus.textContent = text;
+    connStatus.className = 'pill ' + (isError ? 'warn' : 'ok');
+  };
+
+  const defaultWsUrl = () => {
+    const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${scheme}://${window.location.host}/ws/tts`;
+  };
+
+  const readQueryToken = () => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('token') || '';
+  };
+
+  const buildWsUrl = () => {
+    const base = wsUrlEl.value.trim() || defaultWsUrl();
+    const token = tokenEl.value.trim();
+    if (!token) return base;
+    const url = new URL(base, window.location.href);
+    url.searchParams.set('token', token);
+    return url.toString();
+  };
+
+  const connect = () => {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+    const url = buildWsUrl();
+    ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => setStatus('Connected');
+    ws.onclose = () => setStatus('Disconnected', true);
+    ws.onerror = () => setStatus('Error', true);
+
+    ws.onmessage = (evt) => {
+      if (typeof evt.data === 'string') {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.event === 'start') {
+            chunks = [];
+            playStatus.textContent = `Streaming (${msg.voice_id || ''})`;
+          } else if (msg.event === 'end') {
+            playStatus.textContent = 'Playing';
+            const blob = new Blob(chunks, { type: 'audio/mpeg' });
+            const url = URL.createObjectURL(blob);
+            player.src = url;
+            player.play().catch(() => {});
+          } else if (msg.event === 'error') {
+            playStatus.textContent = 'Error: ' + (msg.error || 'unknown');
+          }
+        } catch (e) {
+          playStatus.textContent = 'Error: invalid JSON message';
+        }
+      } else {
+        chunks.push(evt.data);
+      }
+    };
+  };
+
+  const disconnect = () => {
+    if (ws) {
+      ws.close();
+      ws = null;
+    }
+  };
+
+  connectBtn.addEventListener('click', connect);
+  disconnectBtn.addEventListener('click', disconnect);
+
+  sendBtn.addEventListener('click', () => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      playStatus.textContent = 'Not connected';
+      return;
+    }
+    const text = ttsTextEl.value.trim();
+    if (!text) {
+      playStatus.textContent = 'Enter text';
+      return;
+    }
+    const payload = {
+      text,
+      voice_id: voiceIdEl.value.trim(),
+    };
+    ws.send(JSON.stringify(payload));
+    playStatus.textContent = 'Sending...';
+  });
+
+  clearBtn.addEventListener('click', () => {
+    ttsTextEl.value = '';
+    playStatus.textContent = 'Idle';
+  });
+
+  // Initialize defaults
+  wsUrlEl.value = defaultWsUrl();
+  tokenEl.value = readQueryToken();
+</script>
+"""
+
+
 class WebUICog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -1503,6 +1695,7 @@ class WebUICog(commands.Cog):
         self._app.router.add_get("/logs", self.page_logs)
         self._app.router.add_get("/settings", self.page_settings)
         self._app.router.add_get("/test-voices", self.page_test_voices)
+        self._app.router.add_get("/obs", self.page_obs_player)
 
 
         self._app.router.add_get("/api/status", self.api_status)
@@ -1514,6 +1707,7 @@ class WebUICog(commands.Cog):
         self._app.router.add_get("/api/settings", self.api_settings_get)
         self._app.router.add_post("/api/settings", self.api_settings_post)
         self._app.router.add_post("/api/tts", self.api_tts_speak)
+        self._app.router.add_get("/ws/tts", self.ws_tts)
 
         self._app.router.add_post("/api/radio-presenter", self.api_radio_presenter)
         self._app.router.add_post("/api/song-suggestions", self.api_song_suggestions)
@@ -1586,6 +1780,10 @@ class WebUICog(commands.Cog):
 
     async def page_test_voices(self, request: web.Request) -> web.Response:
         html = _layout("TTS Bot - Test Voices", _test_voices_body(), token_required=self._token_required)
+        return web.Response(text=html, content_type="text/html")
+
+    async def page_obs_player(self, request: web.Request) -> web.Response:
+        html = _layout("TTS Bot - OBS Player", _obs_player_body(), token_required=self._token_required)
         return web.Response(text=html, content_type="text/html")
     
     async def api_radio_presenter(self, request: web.Request) -> web.Response:
@@ -2010,6 +2208,85 @@ class WebUICog(commands.Cog):
             "channel_id": str(target_channel.id),
             "voice_id": voice_id
         })
+
+    async def ws_tts(self, request: web.Request) -> web.StreamResponse:
+        if self._token_required:
+            token = _get_bearer_token(request)
+            if token != self.token:
+                return web.json_response({"error": "unauthorized"}, status=401)
+
+        ws = web.WebSocketResponse(heartbeat=20, receive_timeout=60)
+        await ws.prepare(request)
+
+        async def stream_tts(text: str, voice_id: Optional[str]) -> None:
+            requested_voice = (voice_id or "").strip() or FALLBACK_VOICE
+            if requested_voice not in ALL_VOICE_IDS:
+                await ws.send_json({"event": "error", "error": f"Unknown voice_id: {requested_voice}"})
+                return
+
+            try:
+                stream, producer_task = await get_tts_stream(text, requested_voice)
+            except Exception as exc:
+                logger.warning("WebSocket TTS stream failed to start: %s", exc)
+                await ws.send_json({"event": "error", "error": str(exc)})
+                return
+
+            await ws.send_json({"event": "start", "voice_id": requested_voice, "format": "mp3"})
+
+            try:
+                while True:
+                    chunk = await asyncio.to_thread(stream.read, 4096)
+                    if not chunk:
+                        break
+                    await ws.send_bytes(chunk)
+                await producer_task
+                await ws.send_json({"event": "end"})
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("WebSocket TTS stream error: %s", exc)
+                with contextlib.suppress(Exception):
+                    await ws.send_json({"event": "error", "error": str(exc)})
+            finally:
+                if not producer_task.done():
+                    producer_task.cancel()
+                    with contextlib.suppress(Exception):
+                        await producer_task
+
+        in_flight: Optional[asyncio.Task] = None
+        try:
+            async for msg in ws:
+                if msg.type == web.WSMsgType.TEXT:
+                    try:
+                        payload = json.loads(msg.data)
+                    except json.JSONDecodeError:
+                        await ws.send_json({"event": "error", "error": "Invalid JSON"})
+                        continue
+
+                    text = str(payload.get("text", "")).strip()
+                    voice_id = str(payload.get("voice_id", "")).strip() or None
+                    if not text:
+                        await ws.send_json({"event": "error", "error": "text is required"})
+                        continue
+
+                    if in_flight and not in_flight.done():
+                        in_flight.cancel()
+                        with contextlib.suppress(Exception):
+                            await in_flight
+
+                    in_flight = asyncio.create_task(stream_tts(text, voice_id))
+                elif msg.type == web.WSMsgType.ERROR:
+                    logger.warning("WebSocket connection error: %s", ws.exception())
+                    break
+                elif msg.type in (web.WSMsgType.CLOSE, web.WSMsgType.CLOSING, web.WSMsgType.CLOSED):
+                    break
+        finally:
+            if in_flight and not in_flight.done():
+                in_flight.cancel()
+                with contextlib.suppress(Exception):
+                    await in_flight
+
+        return ws
 
 
 async def setup(bot: commands.Bot) -> None:

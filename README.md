@@ -91,6 +91,7 @@ Recommended settings to review:
 - Max TTS Characters
 - Auto Speak Voice Chat Messages
 - Leave When Alone In Voice Channel
+- Allowlist Text Channel IDs (optional)
 - (Optional) Voice restriction allowlist
 - (Optional) Join/leave greetings
 
@@ -100,6 +101,28 @@ Recommended settings to review:
   When a different person starts typing, it announces them as: `<name> said "<message>"`.
 - Commands are organized as cogs in `tts-bot/cogs/`.
 - Discord limits slash-command choice lists to 25 items; use `/set voice` to pick from the full voice list.
+
+## Stability/Performance Config (env vars)
+These are global knobs (optional). Defaults shown:
+- `QUEUE_MAXSIZE=100` (bounded per-guild queue)
+- `DROP_POLICY=drop_oldest` (drop oldest when queue is full)
+- `COALESCE_MS=500` (coalesce close messages)
+- `COALESCE_SAME_SPEAKER_ONLY=true`
+- `MAX_MESSAGE_CHARS=350`
+- `MAX_UTTERANCE_CHARS=1000`
+- `USER_COOLDOWN_SECONDS=1.5`
+- `MAX_AUDIO_SECONDS=20`
+- `MAX_RETRIES=2`
+- `STUCK_SECONDS=45`
+- `SKIP_SUMMARY_ENABLED=true`
+- `ALLOWLIST_TEXT_CHANNEL_IDS=` (global CSV allowlist)
+- `TTS_HTTP_TIMEOUT=20`
+
+## Sanity Harness
+Run a lightweight sanity check (no Discord required):
+```bash
+python scripts/sanity_harness.py
+```
 
 ## API Usage
 The bot now includes REST API endpoints for external applications and bots to send TTS requests programmatically.

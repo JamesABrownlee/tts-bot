@@ -2,6 +2,7 @@ import asyncio
 import math
 import random
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -9,9 +10,30 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from utils.config import ALL_VOICES, FALLBACK_VOICE, MAX_TTS_CHARS, POPULAR_VOICE_IDS, VOICE_ID_TO_NAME
+from utils.config import (
+    ALL_VOICES,
+    COALESCE_MS,
+    COALESCE_SAME_SPEAKER_ONLY,
+    DROP_POLICY,
+    FALLBACK_VOICE,
+    GLOBAL_ALLOWLIST_TEXT_CHANNEL_IDS,
+    MAX_AUDIO_SECONDS,
+    MAX_MESSAGE_CHARS,
+    MAX_RETRIES,
+    MAX_TTS_CHARS,
+    MAX_UTTERANCE_CHARS,
+    POPULAR_VOICE_IDS,
+    QUEUE_MAXSIZE,
+    SKIP_SUMMARY_ENABLED,
+    STUCK_SECONDS,
+    USER_COOLDOWN_SECONDS,
+    VOICE_ID_TO_NAME,
+)
 from utils.logger import get_logger
-from utils.tts_pipeline import get_tts_stream
+from utils.tts_pipeline import close_session, get_tts_stream
+from utils.tts_text import normalize_mentions
+from utils.tts_playback import wait_for_playback
+from utils.queue_utils import enqueue_with_drop
 
 logger = get_logger("tts")
 
@@ -20,7 +42,11 @@ logger = get_logger("tts")
 class QueueItem:
     text: str
     voice_id: str
-    volume: Optional[float] = None
+    speaker_id: Optional[int] = None
+    speaker_name: Optional[str] = None
+    created_at: float = 0.0
+    attempt_count: int = 0
+    item_id: str = ""
 
 
 @dataclass
@@ -28,11 +54,21 @@ class GuildState:
     voice_client: Optional[discord.VoiceClient] = None
     voice_channel_id: Optional[int] = None  # locked voice channel
     last_voice_channel_id: Optional[int] = None  # last successful connection
-    queue: asyncio.Queue = field(default_factory=asyncio.Queue)
+    queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=QUEUE_MAXSIZE))
     worker: Optional[asyncio.Task] = None
     connect_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     last_speaker_id: Optional[int] = None
     last_connect_attempt: float = 0.0
+    worker_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    skipped_count: int = 0
+    last_enqueue_at: float = 0.0
+    last_spoke_started_at: float = 0.0
+    last_spoke_finished_at: float = 0.0
+    consecutive_failures: int = 0
+    current_item_summary: str = ""
+    is_playing: bool = False
+    last_user_spoke_at: dict[int, float] = field(default_factory=dict)
+    pending_item: Optional["QueueItem"] = None
 
 
 class VoicePickerView(discord.ui.View):
@@ -177,6 +213,7 @@ class TTSCog(commands.Cog):
     def cog_unload(self) -> None:
         if self._health_task and not self._health_task.done():
             self._health_task.cancel()
+        self.bot.loop.create_task(close_session())
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -196,6 +233,18 @@ class TTSCog(commands.Cog):
                     vc = state.voice_client
                     if vc and vc.is_connected() and vc.channel:
                         state.last_voice_channel_id = vc.channel.id
+                        now = time.monotonic()
+                        if state.is_playing and state.last_spoke_started_at:
+                            if now - state.last_spoke_started_at > (MAX_AUDIO_SECONDS + 5):
+                                await self._recover_voice(guild.id, "playback_stuck")
+                                continue
+                        if not state.is_playing and state.queue.qsize() > 0:
+                            last_activity = max(state.last_spoke_finished_at, state.last_enqueue_at)
+                            if last_activity and now - last_activity > STUCK_SECONDS:
+                                await self._recover_voice(guild.id, "queue_stuck")
+                                continue
+                        if state.worker is None or state.worker.done():
+                            await self.ensure_worker(guild.id)
                         continue
 
                     guild_vc = guild.voice_client
@@ -250,6 +299,7 @@ class TTSCog(commands.Cog):
                 "farewell_on_leave": False,
                 "restrict_voices": False,
                 "allowed_voice_ids": [],
+                "allowlist_text_channel_ids": [],
             }
         return await store.get()
 
@@ -384,33 +434,195 @@ class TTSCog(commands.Cog):
 
     async def ensure_worker(self, guild_id: int) -> None:
         state = self.get_state(guild_id)
-        if state.worker and not state.worker.done():
-            return
+        async with state.worker_lock:
+            if state.worker and not state.worker.done():
+                return
 
-        async def worker_loop() -> None:
-            while True:
-                item = await state.queue.get()
-                if item is None:
-                    return
-                try:
-                    if not state.voice_client or not state.voice_client.is_connected():
-                        continue
-                    await self.play_tts(
-                        guild_id,
-                        state.voice_client,
-                        item.text,
-                        item.voice_id,
-                        volume=item.volume,
-                    )
-                finally:
-                    state.queue.task_done()
+            async def worker_loop() -> None:
+                while True:
+                    item: Optional[QueueItem] = None
+                    try:
+                        if state.pending_item is not None:
+                            item = state.pending_item
+                            state.pending_item = None
+                        else:
+                            item = await state.queue.get()
+                        if item is None:
+                            if state.pending_item is None:
+                                state.queue.task_done()
+                            return
 
-        state.worker = asyncio.create_task(worker_loop())
+                        if SKIP_SUMMARY_ENABLED and state.skipped_count > 0:
+                            settings = await self.get_settings(guild_id)
+                            summary_item = QueueItem(
+                                text=f"Skipped {state.skipped_count} messages while disconnected or overloaded.",
+                                voice_id=self._bot_default_voice(settings),
+                                created_at=time.monotonic(),
+                                item_id=f"skip-{uuid.uuid4().hex[:8]}",
+                            )
+                            state.skipped_count = 0
+                            await self._process_item(guild_id, state, summary_item)
+
+                        item = await self._coalesce_items(state, item)
+                        await self._process_item(guild_id, state, item)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        logger.warning("Worker loop error: guild=%s err=%s", guild_id, exc)
+                    finally:
+                        if item is not None:
+                            state.queue.task_done()
+
+            state.worker = asyncio.create_task(worker_loop())
+            logger.info("Worker started: guild=%s", guild_id)
 
     async def stop_worker(self, state: GuildState) -> None:
         if state.worker and not state.worker.done():
             await state.queue.put(None)
             await state.worker
+            logger.info("Worker stopped")
+
+    def _item_summary(self, item: QueueItem) -> str:
+        snippet = (item.text or "").strip()
+        if len(snippet) > 60:
+            snippet = snippet[:57] + "..."
+        return f"id={item.item_id} speaker={item.speaker_id} len={len(item.text)} text={snippet!r}"
+
+    async def _enqueue_item(self, guild_id: int, state: GuildState, item: QueueItem) -> None:
+        dropped, enqueued = await enqueue_with_drop(state.queue, item, policy=DROP_POLICY)
+        if dropped:
+            state.skipped_count += dropped
+            logger.info("Drop oldest: guild=%s skipped=%s", guild_id, state.skipped_count)
+        if not enqueued:
+            state.skipped_count += 1
+            logger.info("Drop item: guild=%s skipped=%s", guild_id, state.skipped_count)
+            return
+        state.last_enqueue_at = time.monotonic()
+        logger.info(
+            "Enqueue: guild=%s speaker=%s item=%s len=%s queue=%s",
+            guild_id,
+            item.speaker_id,
+            item.item_id,
+            len(item.text),
+            state.queue.qsize(),
+        )
+
+    async def _coalesce_items(self, state: GuildState, item: QueueItem) -> QueueItem:
+        if COALESCE_MS <= 0:
+            return item
+
+        combined_text = item.text
+        deadline = time.monotonic() + (COALESCE_MS / 1000.0)
+
+        while time.monotonic() < deadline:
+            try:
+                next_item = state.queue.get_nowait()
+            except asyncio.QueueEmpty:
+                await asyncio.sleep(0.05)
+                continue
+
+            if next_item is None:
+                state.queue.task_done()
+                await state.queue.put(None)
+                break
+
+            if COALESCE_SAME_SPEAKER_ONLY and next_item.speaker_id != item.speaker_id:
+                state.queue.task_done()
+                await state.queue.put(next_item)
+                break
+
+            if len(combined_text) + 1 + len(next_item.text) > MAX_UTTERANCE_CHARS:
+                state.queue.task_done()
+                await state.queue.put(next_item)
+                break
+
+            combined_text = f"{combined_text} {next_item.text}".strip()
+            state.queue.task_done()
+
+        if combined_text != item.text:
+            return QueueItem(
+                text=combined_text,
+                voice_id=item.voice_id,
+                speaker_id=item.speaker_id,
+                speaker_name=item.speaker_name,
+                created_at=item.created_at,
+                attempt_count=item.attempt_count,
+                item_id=item.item_id,
+            )
+        return item
+
+    async def _process_item(self, guild_id: int, state: GuildState, item: QueueItem) -> None:
+        vc = state.voice_client
+        if not vc or not vc.is_connected():
+            state.skipped_count += 1
+            logger.info("Skip (no voice): guild=%s item=%s", guild_id, self._item_summary(item))
+            return
+
+        state.current_item_summary = self._item_summary(item)
+        state.last_spoke_started_at = time.monotonic()
+        state.is_playing = True
+        try:
+            await self.play_tts(guild_id, vc, item.text, item.voice_id)
+            state.consecutive_failures = 0
+        except Exception as exc:
+            state.consecutive_failures += 1
+            if item.attempt_count < MAX_RETRIES:
+                backoff = 0.5 * (2 ** item.attempt_count)
+                logger.warning(
+                    "Retry item: guild=%s attempt=%s backoff=%.2fs err=%s item=%s",
+                    guild_id,
+                    item.attempt_count + 1,
+                    backoff,
+                    exc,
+                    self._item_summary(item),
+                )
+                await asyncio.sleep(backoff)
+                retry_item = QueueItem(
+                    text=item.text,
+                    voice_id=item.voice_id,
+                    speaker_id=item.speaker_id,
+                    speaker_name=item.speaker_name,
+                    created_at=item.created_at,
+                    attempt_count=item.attempt_count + 1,
+                    item_id=item.item_id,
+                )
+                await self._enqueue_item(guild_id, state, retry_item)
+            else:
+                state.skipped_count += 1
+                logger.warning(
+                    "Drop item: guild=%s err=%s item=%s",
+                    guild_id,
+                    exc,
+                    self._item_summary(item),
+                )
+        finally:
+            state.is_playing = False
+            state.last_spoke_finished_at = time.monotonic()
+
+    async def _drain_queue(self, state: GuildState) -> None:
+        while True:
+            try:
+                item = state.queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if item is not None:
+                state.skipped_count += 1
+            state.queue.task_done()
+
+    async def _recover_voice(self, guild_id: int, reason: str) -> None:
+        state = self.get_state(guild_id)
+        target_id = state.voice_channel_id or state.last_voice_channel_id
+        logger.warning("Voice recovery: guild=%s reason=%s target=%s", guild_id, reason, target_id)
+        await self.disconnect(guild_id, reason=reason)
+        if target_id is None:
+            return
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            return
+        channel = guild.get_channel(target_id)
+        if not isinstance(channel, (discord.VoiceChannel, discord.StageChannel)):
+            return
+        await self.ensure_connected(guild, channel)
 
     async def play_tts(
         self,
@@ -418,11 +630,9 @@ class TTSCog(commands.Cog):
         voice_client: discord.VoiceClient,
         text: str,
         voice_id: str,
-        *,
-        volume: Optional[float] = None,
     ) -> None:
         settings = await self.get_settings(guild_id)
-        voice_id = self._effective_voice_id(settings, voice_id)
+        voice_id = self._effective_voice_id(settings, voice_id, allow_default=True)
         max_tts_chars = int(settings.get("max_tts_chars", MAX_TTS_CHARS))
         fallback_voice = str(settings.get("fallback_voice", FALLBACK_VOICE))
 
@@ -431,19 +641,55 @@ class TTSCog(commands.Cog):
             return
         if len(clean_text) > max_tts_chars:
             clean_text = clean_text[:max_tts_chars]
+        if len(clean_text) > MAX_UTTERANCE_CHARS:
+            clean_text = clean_text[: MAX_UTTERANCE_CHARS - 1] + "…"
 
         stream, producer_task = await get_tts_stream(clean_text, voice_id, fallback_voice=fallback_voice)
         done = asyncio.Event()
+        start_ts = time.monotonic()
 
         def after_playback(_err: Optional[Exception]) -> None:
+            if _err:
+                logger.warning("Playback after() error: guild=%s err=%s", guild_id, _err)
             self.bot.loop.call_soon_threadsafe(done.set)
 
         source = discord.FFmpegPCMAudio(stream, pipe=True)
-        if volume is not None:
-            safe_volume = max(0.0, min(2.0, float(volume)))
-            source = discord.PCMVolumeTransformer(source, volume=safe_volume)
-        voice_client.play(source, after=after_playback)
-        await done.wait()
+        try:
+            voice_client.play(source, after=after_playback)
+        except Exception as exc:
+            done.set()
+            raise RuntimeError(f"voice_client.play failed: {exc}") from exc
+
+        logger.info(
+            "Playback start: guild=%s channel=%s len=%s voice=%s",
+            guild_id,
+            getattr(getattr(voice_client, "channel", None), "id", None),
+            len(clean_text),
+            voice_id,
+        )
+        ok = await wait_for_playback(done, timeout=MAX_AUDIO_SECONDS)
+        if not ok:
+            logger.warning(
+                "Playback timeout: guild=%s channel=%s len=%s voice=%s",
+                guild_id,
+                getattr(getattr(voice_client, "channel", None), "id", None),
+                len(clean_text),
+                voice_id,
+            )
+            try:
+                voice_client.stop()
+            except Exception:
+                pass
+            await self._recover_voice(guild_id, reason="playback_timeout")
+            raise RuntimeError("playback timeout")
+        finally:
+            duration = max(0.0, time.monotonic() - start_ts)
+            logger.info(
+                "Playback end: guild=%s channel=%s duration=%.2fs",
+                guild_id,
+                getattr(getattr(voice_client, "channel", None), "id", None),
+                duration,
+            )
 
         try:
             await producer_task
@@ -717,6 +963,8 @@ class TTSCog(commands.Cog):
             if reason in {"slash_leave", "alone"}:
                 state.last_voice_channel_id = None
             state.last_speaker_id = None
+            state.pending_item = None
+            await self._drain_queue(state)
             await self.stop_worker(state)
 
     async def check_should_leave(self, guild: discord.Guild) -> None:
@@ -736,6 +984,21 @@ class TTSCog(commands.Cog):
     def _is_voice_chat_text_channel(self, channel: discord.abc.GuildChannel) -> bool:
         t = getattr(channel, "type", None)
         return t in {discord.ChannelType.voice, discord.ChannelType.stage_voice}
+
+    def _is_message_channel_allowed(
+        self,
+        message_channel: discord.abc.GuildChannel,
+        voice_channel: discord.abc.GuildChannel,
+        allowlist: set[int],
+    ) -> bool:
+        if message_channel.id in allowlist:
+            return True
+        if message_channel.id == voice_channel.id:
+            return True
+        parent_id = getattr(message_channel, "parent_id", None)
+        if parent_id and parent_id == voice_channel.id:
+            return True
+        return False
 
     def _time_of_day_greeting(self) -> str:
         hour = time.localtime().tm_hour
@@ -776,8 +1039,6 @@ class TTSCog(commands.Cog):
             return
         if not message.guild:
             return
-        if not message.content or not message.content.strip():
-            return
 
         settings = await self.get_settings(message.guild.id)
         if not settings.get("auto_read_messages", True):
@@ -786,8 +1047,6 @@ class TTSCog(commands.Cog):
         channel = message.channel
         if not isinstance(channel, discord.abc.GuildChannel):
             return
-        if not self._is_voice_chat_text_channel(channel):
-            return
 
         if not isinstance(message.author, discord.Member):
             return
@@ -795,11 +1054,20 @@ class TTSCog(commands.Cog):
         member = message.author
         if not member.voice or not member.voice.channel:
             return
-
-        if member.voice.channel.id != channel.id:
+        voice_channel = member.voice.channel
+        allowlist = set(settings.get("allowlist_text_channel_ids") or [])
+        allowlist.update(GLOBAL_ALLOWLIST_TEXT_CHANNEL_IDS)
+        if not self._is_message_channel_allowed(channel, voice_channel, allowlist):
             return
 
-        ok = await self.ensure_connected(message.guild, member.voice.channel)
+        now = time.monotonic()
+        state = self.get_state(message.guild.id)
+        last_spoke = state.last_user_spoke_at.get(member.id, 0.0)
+        if now - last_spoke < USER_COOLDOWN_SECONDS:
+            return
+        state.last_user_spoke_at[member.id] = now
+
+        ok = await self.ensure_connected(message.guild, voice_channel)
         if not ok:
             return
 
@@ -808,8 +1076,7 @@ class TTSCog(commands.Cog):
         voice_id = await self.get_user_voice(member.id)
         voice_id = self._effective_voice_id(settings, voice_id, allow_default=False)
 
-        state = self.get_state(message.guild.id)
-        text = message.content
+        text = normalize_mentions(message)
         is_status = False
 
         def _is_image_attachment(att: discord.Attachment) -> bool:
@@ -851,11 +1118,25 @@ class TTSCog(commands.Cog):
                 text = f"{speak_name} posted a link"
                 is_status = True
 
-        if not is_status and state.last_speaker_id != member.id:
-            speak_name = await self.get_user_speak_name(member)
-            text = f'{speak_name} said. "{text}"'
+        if not text and not is_status:
+            return
+
+        if not is_status:
+            if len(text) > MAX_MESSAGE_CHARS:
+                text = text[: MAX_MESSAGE_CHARS - 1] + "…"
+            if state.last_speaker_id != member.id:
+                speak_name = await self.get_user_speak_name(member)
+                text = f'{speak_name} ... said "{text}"'
         state.last_speaker_id = member.id
-        await state.queue.put(QueueItem(text=text, voice_id=voice_id))
+        item = QueueItem(
+            text=text,
+            voice_id=voice_id,
+            speaker_id=member.id,
+            speaker_name=member.display_name,
+            created_at=time.monotonic(),
+            item_id=uuid.uuid4().hex[:10],
+        )
+        await self._enqueue_item(message.guild.id, state, item)
 
     @commands.Cog.listener()
     async def on_voice_state_update(
@@ -933,7 +1214,15 @@ class TTSCog(commands.Cog):
                     if not (state.voice_client and state.voice_client.is_connected()):
                         return
                     await self.ensure_worker(member.guild.id)
-                    await state.queue.put(QueueItem(text=greeting_text, voice_id=voice_id, volume=0.8))
+                    greet_item = QueueItem(
+                        text=greeting_text,
+                        voice_id=voice_id,
+                        speaker_id=member.id,
+                        speaker_name=member.display_name,
+                        created_at=time.monotonic(),
+                        item_id=uuid.uuid4().hex[:10],
+                    )
+                    await self._enqueue_item(member.guild.id, state, greet_item)
 
                     if db is not None:
                         try:
@@ -948,9 +1237,15 @@ class TTSCog(commands.Cog):
 
                 if left_bot_channel and settings.get("farewell_on_leave"):
                     await self.ensure_worker(member.guild.id)
-                    await state.queue.put(
-                        QueueItem(text=f"{self._random_farewell()} {name}", voice_id=voice_id, volume=0.8)
+                    farewell_item = QueueItem(
+                        text=f"{self._random_farewell()} {name}",
+                        voice_id=voice_id,
+                        speaker_id=member.id,
+                        speaker_name=member.display_name,
+                        created_at=time.monotonic(),
+                        item_id=uuid.uuid4().hex[:10],
                     )
+                    await self._enqueue_item(member.guild.id, state, farewell_item)
 
         if state.voice_client and state.voice_client.is_connected():
             await self.check_should_leave(member.guild)
@@ -972,6 +1267,8 @@ class TTSCog(commands.Cog):
         if not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
             return
+        if len(text) > MAX_UTTERANCE_CHARS:
+            text = text[: MAX_UTTERANCE_CHARS - 1] + "…"
 
         member = interaction.user
         if not member.voice or not member.voice.channel:
@@ -994,7 +1291,15 @@ class TTSCog(commands.Cog):
         voice_id = self._effective_voice_id(settings, voice_id, allow_default=False)
 
         state = self.get_state(interaction.guild.id)
-        await state.queue.put(QueueItem(text=text, voice_id=voice_id))
+        item = QueueItem(
+            text=text,
+            voice_id=voice_id,
+            speaker_id=member.id,
+            speaker_name=member.display_name,
+            created_at=time.monotonic(),
+            item_id=uuid.uuid4().hex[:10],
+        )
+        await self._enqueue_item(interaction.guild.id, state, item)
         await interaction.response.send_message("Queued.", ephemeral=True)
 
     @app_commands.command(name="voice", description="View or set your personal TTS voice")

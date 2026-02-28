@@ -51,6 +51,7 @@ from utils.db import Database
 from utils.guild_settings_store import GuildSettingsStore
 from utils.logger import get_logger, init_root_logging
 from utils.settings_store import VERSION, SettingsStore
+from utils.tts_pipeline import close_session
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -118,6 +119,7 @@ async def main() -> None:
     try:
         await bot.start(token)
     finally:
+        await close_session()
         await bot.db.close()
 
 

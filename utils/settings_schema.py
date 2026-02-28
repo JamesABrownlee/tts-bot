@@ -20,6 +20,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     # Keep this pre-populated so new installs can immediately restrict voices
     # without having to manually select everything first.
     "allowed_voice_ids": list(ALL_VOICE_IDS),
+    "allowlist_text_channel_ids": [],
 }
 
 
@@ -89,6 +90,33 @@ def validate_settings(data: Mapping[str, Any]) -> Dict[str, Any]:
             raise SettingsValidationError("allowed_voice_ids is too large (max 500)")
 
     cleaned["allowed_voice_ids"] = cleaned_allowed
+
+    allowlist = merged.get("allowlist_text_channel_ids", [])
+    if isinstance(allowlist, str):
+        try:
+            allowlist = json.loads(allowlist)
+        except json.JSONDecodeError as exc:
+            raise SettingsValidationError("allowlist_text_channel_ids must be a JSON list") from exc
+    if allowlist is None:
+        allowlist = []
+    if not isinstance(allowlist, (list, tuple, set)):
+        raise SettingsValidationError("allowlist_text_channel_ids must be a list of integers")
+
+    cleaned_allowlist: list[int] = []
+    seen_ids: set[int] = set()
+    for item in allowlist:
+        try:
+            cid = int(item)
+        except (TypeError, ValueError):
+            continue
+        if cid <= 0 or cid in seen_ids:
+            continue
+        seen_ids.add(cid)
+        cleaned_allowlist.append(cid)
+        if len(cleaned_allowlist) > 200:
+            raise SettingsValidationError("allowlist_text_channel_ids is too large (max 200)")
+
+    cleaned["allowlist_text_channel_ids"] = cleaned_allowlist
 
     if cleaned["restrict_voices"]:
         if not cleaned_allowed:

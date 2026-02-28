@@ -1,8 +1,62 @@
+import os
+
 COMMAND_PREFIX = "!"
 MAX_TTS_CHARS = 300
 FALLBACK_VOICE = "en_us_001"
 VOICE_FAILURE_THRESHOLD = 3
 VOICE_COOLDOWN_DURATION = 300
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, "").strip() or default)
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, "").strip() or default)
+    except ValueError:
+        return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _env_int_list(name: str) -> list[int]:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return []
+    values: list[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            values.append(int(part))
+        except ValueError:
+            continue
+    return values
+
+
+QUEUE_MAXSIZE = _env_int("QUEUE_MAXSIZE", 100)
+DROP_POLICY = os.getenv("DROP_POLICY", "drop_oldest").strip().lower() or "drop_oldest"
+COALESCE_MS = _env_int("COALESCE_MS", 500)
+COALESCE_SAME_SPEAKER_ONLY = _env_bool("COALESCE_SAME_SPEAKER_ONLY", True)
+MAX_MESSAGE_CHARS = _env_int("MAX_MESSAGE_CHARS", 350)
+MAX_UTTERANCE_CHARS = _env_int("MAX_UTTERANCE_CHARS", 1000)
+USER_COOLDOWN_SECONDS = _env_float("USER_COOLDOWN_SECONDS", 1.5)
+MAX_AUDIO_SECONDS = _env_float("MAX_AUDIO_SECONDS", 20.0)
+MAX_RETRIES = _env_int("MAX_RETRIES", 2)
+STUCK_SECONDS = _env_float("STUCK_SECONDS", 45.0)
+SKIP_SUMMARY_ENABLED = _env_bool("SKIP_SUMMARY_ENABLED", True)
+GLOBAL_ALLOWLIST_TEXT_CHANNEL_IDS = _env_int_list("ALLOWLIST_TEXT_CHANNEL_IDS")
+TTS_HTTP_TIMEOUT = _env_float("TTS_HTTP_TIMEOUT", 20.0)
 
 TIKTOK_TTS_URL = "https://tiktok-tts.weilnet.workers.dev/api/generation"
 GOOGLE_TTS_URL = "https://translate.google.com/translate_tts"

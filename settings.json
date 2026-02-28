@@ -48,5 +48,6 @@
     "en_au_002",
     "es_mx_002",
     "google_translate"
-  ]
+  ],
+  "allowlist_text_channel_ids": []
 }
