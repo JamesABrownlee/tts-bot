@@ -69,3 +69,165 @@ connector: <aiohttp.connector.TCPConnector object at 0x7f6690271b90>
 2026-02-05 22:26:05 INFO     discord.player  ffmpeg process 4156799 successfully terminated with return code of 0.
 2026-02-05 22:31:15 INFO     discord.player  ffmpeg process 4158230 successfully terminated with return code of 0.
 2026-02-05 22:31:21 INFO     discord.player  ffmpeg process 4158257 successfully terminated with return code of 0.
+2026-02-28 16:44:10 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:44:10 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:44:10 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:44:10 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7fe0ce94cec0>, 12706507.027010778)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7fe0ce960c90>
+2026-02-28 16:44:12 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:44:12 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:44:12 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:44:12 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f0c0713cec0>, 12706508.783594295)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f0c07155990>
+2026-02-28 16:44:14 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:44:14 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:44:14 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:44:14 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f28d7a50ec0>, 12706510.653327128)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f28d7a69ad0>
+2026-02-28 16:44:16 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:44:16 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:44:16 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:44:16 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f88cfb3cec0>, 12706512.54784216)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f88cfb55910>
+2026-02-28 16:44:18 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:44:18 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:44:18 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:44:18 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7fdec924cec0>, 12706514.989158688)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7fdec92658d0>
+2026-02-28 16:44:21 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:44:21 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:44:21 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:44:22 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f747d650ec0>, 12706518.16181987)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f747d669ad0>
+2026-02-28 16:44:26 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:44:26 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:44:26 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:44:26 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f244214cec0>, 12706522.830685228)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f24421615d0>
+2026-02-28 16:44:34 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:44:34 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:44:34 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:44:34 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f751a100ec0>, 12706530.676350554)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f751a119850>
+2026-02-28 16:44:48 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:44:48 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:44:48 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:44:48 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f31ea104ec0>, 12706544.881951803)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f31ea119590>
+2026-02-28 16:45:15 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:45:15 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:45:15 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:45:15 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f6d6894cec0>, 12706571.951529743)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f6d689615d0>
+2026-02-28 16:46:08 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:46:08 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:46:08 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:46:08 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7fd25c44cec0>, 12706624.625667952)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7fd25c461690>
+2026-02-28 16:47:09 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:47:09 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:47:09 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:47:10 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7fd6dac40ec0>, 12706686.159108188)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7fd6dac59ad0>
+2026-02-28 16:48:11 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:48:11 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:48:11 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:48:11 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7fc41553cec0>, 12706747.764654402)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7fc415555990>
+2026-02-28 16:49:13 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:49:13 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:49:13 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:49:13 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7fe72bb04ec0>, 12706809.460706225)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7fe72bb1dad0>
+2026-02-28 16:50:14 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:50:14 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:50:14 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:50:14 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f923084cec0>, 12706871.0056834)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f9230861510>
+2026-02-28 16:51:16 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:51:16 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:51:16 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:51:16 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f5ce2040ec0>, 12706932.466876594)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f5ce2059a10>
+2026-02-28 16:52:17 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:52:17 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:52:17 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:52:17 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f0622e50ec0>, 12706994.055733401)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f0622e69d10>
+2026-02-28 16:53:19 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:53:19 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:53:19 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:53:19 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f3e33040ec0>, 12707055.527680976)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f3e33059990>
+2026-02-28 16:54:20 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:54:20 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:54:20 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:54:20 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f3bef54cec0>, 12707116.984549752)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f3bef56d310>
+2026-02-28 16:55:22 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:55:22 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:55:22 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:55:22 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f4d3394cec0>, 12707178.60322225)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f4d33965d50>
+2026-02-28 16:56:23 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:56:23 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:56:23 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:56:23 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f6f3213cec0>, 12707240.083043864)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f6f32155c10>
+2026-02-28 16:57:25 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:57:25 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:57:25 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:57:25 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7fa7b7650ec0>, 12707301.730482273)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7fa7b7669bd0>
+2026-02-28 16:58:26 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:58:26 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:58:26 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:58:27 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f706284cec0>, 12707363.327013347)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f70628615d0>
+2026-02-28 16:59:28 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 16:59:28 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 16:59:28 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 16:59:28 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f3ceae4cec0>, 12707424.755172515)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f3ceae61450>
+2026-02-28 17:00:29 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 17:00:29 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 17:00:29 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 17:00:30 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7efc7464cec0>, 12707486.233053692)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7efc746615d0>
+2026-02-28 17:01:31 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 17:01:31 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 17:01:31 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 17:01:31 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f6379cf4ec0>, 12707547.922028448)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f6379d0da10>
+2026-02-28 17:02:33 INFO     TTS.bot  discord.py version: 2.6.4
+2026-02-28 17:02:33 INFO     TTS.bot  Settings defaults file: /data/settings.json
+2026-02-28 17:02:33 INFO     TTS.bot  Database file: /data/tts.db
+2026-02-28 17:02:33 ERROR    asyncio  Unclosed connector
+connections: ['[(<aiohttp.client_proto.ResponseHandler object at 0x7f9331440ec0>, 12707609.80615082)]']
+connector: <aiohttp.connector.TCPConnector object at 0x7f9331459990>

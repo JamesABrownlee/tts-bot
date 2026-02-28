@@ -26,3 +26,4 @@ data/
 settings.json
 
 files/
+.env
